@@ -1,0 +1,75 @@
+---
+config:
+  layout: elk
+---
+graph TD
+    %% Styles
+    classDef client fill:#1e3a5f,stroke:#4a9eff,color:#fff,stroke-width:2px
+    classDef gateway fill:#3d2a00,stroke:#ff9800,color:#fff,stroke-width:2px
+    classDef collab fill:#0f3a2a,stroke:#4caf50,color:#fff,stroke-width:2px
+    classDef exec fill:#2c1b4a,stroke:#9c27b0,color:#fff,stroke-width:2px
+    classDef db fill:#1a2634,stroke:#607d8b,color:#fff,stroke-width:2px
+    classDef lb fill:#263238,stroke:#78909c,color:#fff
+
+    %% Clients
+    subgraph Clients ["👥 Clients (Electron Apps)"]
+        direction TB
+        CA[Client A]
+        CB[Client B]
+        CN["Client N..."]
+    end
+
+    %% Load Balancer / Gateway Layer
+    subgraph GatewayLayer ["🌐 Custom TCP Gateway Layer"]
+        LB["Load Balancer / TCP Proxy\n(HAProxy / custom net server)"]
+        GW["Custom TCP Gateway\n(net.createServer)"]
+    end
+
+    %% Core Services
+    subgraph Core ["Core Services"]
+        direction TB
+        COLLAB["Collab Server\n(OT Engine + Presence + Room Manager)"]:::collab
+        EXEC["Execution Cluster\n(Master + Multiple Slaves)"]:::exec
+    end
+
+    %% Databases
+    subgraph Storage ["Storage Layer"]
+        direction TB
+        PG[(PostgreSQL\nUsers, Projects, History)]
+        REDIS[(Redis\nSession, Room State, Cache, Queue)]
+        S3[(S3/MinIO\nCode snapshots, Test cases)]
+    end
+
+    %% Container Pool
+    subgraph Containers ["🏗️ Container Execution Pool"]
+        POOL["Warm Container Pool\n(Read-only + tmpfs)\nGlobal Shared Pool"]
+    end
+
+    %% Connections
+    CA & CB & CN -->|"Raw TCP Persistent\n(port 8080)"| LB
+    LB --> GW
+
+    GW -- "EDIT / CURSOR / CHAT" --> COLLAB
+    GW -- "RUN / Execute" --> EXEC
+
+    COLLAB <-->|"Room state, cache, history"| REDIS
+    COLLAB <-->|"Persist history"| PG
+
+    EXEC <-->|"Job queue, pool state"| REDIS
+    EXEC <-->|"User info, results"| PG
+    EXEC -->|"Load test cases"| S3
+
+    EXEC -->|"Dispatch jobs"| POOL
+    POOL -- "Real-time output stream" --> EXEC
+
+    %% Bidirectional
+    COLLAB -- "Broadcast diff & presence" --> GW
+    EXEC -- "Stream output (stdout/stderr)" --> GW
+
+    GW -- "Server Push" --> CA & CB & CN
+
+    class CA,CB,CN client
+    class GW,LB gateway
+    class COLLAB collab
+    class EXEC exec
+    class PG,REDIS,S3 db
