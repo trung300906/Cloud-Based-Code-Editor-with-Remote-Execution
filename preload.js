@@ -1,18 +1,13 @@
-/**
- * The preload script runs before `index.html` is loaded
- * in the renderer. It has access to web APIs as well as
- * Electron's renderer process modules and some polyfilled
- * Node.js functions.
- *
- * https://www.electronjs.org/docs/latest/tutorial/sandbox
- */
-window.addEventListener('DOMContentLoaded', () => {
-  const replaceText = (selector, text) => {
-    const element = document.getElementById(selector)
-    if (element) element.innerText = text
-  }
+const { contextBridge, ipcRenderer } = require('electron')
 
-  for (const type of ['chrome', 'node', 'electron']) {
-    replaceText(`${type}-version`, process.versions[type])
-  }
+// [ADDED]: Mở cổng giao tiếp cho các lệnh File (New, Open, Save) từ Menu xuống UI
+contextBridge.exposeInMainWorld('electronAPI', {
+  onNewFile: (callback) => ipcRenderer.on('file-new', callback),
+  onOpenFile: (callback) => ipcRenderer.on('file-open', (event, data) => callback(data)),
+  onSaveRequest: (callback) => ipcRenderer.on('file-save-request', callback),
+  sendSaveFile: (data) => ipcRenderer.send('save-file', data),
+  onFileSaved: (callback) => ipcRenderer.on('file-saved', (event, path) => callback(path)),
+  requestReadFile: (filePath) => ipcRenderer.send('request-read-file', filePath),
+  // [ADDED]: Mở cổng để nhận danh sách file/folder từ Main quăng về
+  onFolderOpened: (callback) => ipcRenderer.on('folder-opened', (event, value) => callback(value)),
 })

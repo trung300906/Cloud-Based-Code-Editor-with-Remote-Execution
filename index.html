@@ -2,18 +2,35 @@
 <html>
   <head>
     <meta charset="UTF-8">
-    <!-- https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://cdnjs.cloudflare.com; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src 'self' data: https://cdnjs.cloudflare.com;">
     <link href="./styles.css" rel="stylesheet">
-    <title>Hello World!</title>
+    <title>Diddy Skibidi</title>
   </head>
   <body>
-    <h1>Hello World!</h1>
-    We are using Node.js <span id="node-version"></span>,
-    Chromium <span id="chrome-version"></span>,
-    and Electron <span id="electron-version"></span>.
+    <div class="container">
+      <div class="main-editor">
+        <div class="editor-toolbar">
+          <button id="theme-toggle-btn">🌙 Dark Mode: ON</button>
+          
+          <select id="lang-select">
+            <option value="cpp">C++</option>
+            <option value="python">Python</option>
+          </select>
 
-    <!-- You can also require other files to run in this process -->
+          <button id="submit-btn">🟢 Submit Code</button>
+        </div>
+        <div id="editor-container"></div> 
+      </div>
+
+      <div class="sidebar">
+        <h3>File Explorer</h3>
+        <ul id="file-list">
+          <li>...</li>
+        </ul>
+      </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
     <script src="./renderer.js"></script>
   </body>
 </html>
