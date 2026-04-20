@@ -1,3 +1,161 @@
 /* styles.css */
 
-/* Add styles here to customize the appearance of your app */
+/* Reset cơ bản */
+body, html {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: sans-serif;
+  overflow: hidden;
+}
+
+.container {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* Cột Editor xếp dọc (Toolbar ở trên, Editor ở dưới) */
+.main-editor {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column; 
+}
+
+/* Thanh công cụ */
+.editor-toolbar {
+  background-color: #252526; 
+  padding: 5px 10px; /* Giảm độ dày của thanh Toolbar */
+  display: flex;
+  justify-content: flex-end; 
+  align-items: center; /* Đảm bảo các nút nằm thẳng hàng ngang */
+  border-bottom: 1px solid #1e1e1e;
+}
+
+/* Nút Submit */
+#submit-btn {
+  background-color: #0e639c; 
+  color: white;
+  border: none;
+  padding: 4px 12px; /* Gọt cho mỏng lại */
+  font-family: sans-serif;
+  font-size: 12px;   /* Đồng bộ cỡ chữ 12px */
+  font-weight: bold; /* Cứ giữ in đậm cho nổi bật nút chính */
+  border-radius: 3px; 
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+#submit-btn:hover {
+  background-color: #1177bb; 
+}
+
+/* Vùng chứa Editor phải flex-grow để đẩy full khoảng trống còn lại */
+#editor-container {
+  width: 100%;
+  flex-grow: 1; 
+}
+
+/* Cột Sidebar */
+.sidebar {
+  width: 250px;
+  background-color: #f0f0f0;
+  border-left: 1px solid #ccc;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+/* Thêm màu nền tối cho toàn bộ app */
+/* MẶC ĐỊNH LÀ DARK MODE */
+body, html {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: sans-serif;
+  overflow: hidden;
+  background-color: #1e1e1e; /* Màu nền đen chuẩn VS Code */
+  color: #cccccc; /* Chữ xám nhạt */
+}
+
+/* Sửa lại class sidebar */
+.sidebar {
+  width: 250px;
+  background-color: #252526; /* Đen nhạt hơn nền một xíu */
+  border-left: 1px solid #333333; /* Viền tối màu */
+  padding: 10px;
+  overflow-y: auto;
+}
+
+/* Thêm tí hiệu ứng hover cho mượt khi di chuột vào file */
+#file-list li:hover {
+  background-color: #37373d;
+}
+
+/* --- NÚT TOGGLE THEME (ĐỔI SANG LIGHT MODE) --- */
+#theme-toggle-btn {
+  background-color: transparent;
+  color: inherit; 
+  border: 1px solid #888;
+  padding: 3px 10px; /* Thu gọn trên dưới, ép mỏng lại */
+  font-size: 12px;   /* Ép chữ nhỏ gọn lại */
+  border-radius: 3px;
+  cursor: pointer;
+  margin-right: 8px; /* Thu hẹp khoảng cách giữa các nút */
+  font-weight: normal; /* Bỏ in đậm đi cho thanh thoát */
+}
+
+#theme-toggle-btn:hover {
+  background-color: rgba(128, 128, 128, 0.2);
+}
+
+/* --- LỚP ÁO LIGHT MODE --- */
+/* Khi body được gắn class "light-mode", toàn bộ màu bên trong sẽ bị ép đổi */
+body.light-mode {
+  background-color: #ffffff;
+  color: #333333;
+}
+
+body.light-mode .sidebar {
+  background-color: #f3f3f3;
+  border-left: 1px solid #cccccc;
+}
+
+body.light-mode .editor-toolbar {
+  background-color: #dddddd;
+  border-bottom: 1px solid #cccccc;
+}
+
+/* Đổi màu ô chọn ngôn ngữ khi bật Light Mode */
+body.light-mode #lang-select {
+  background-color: #ffffff; /* Nền trắng */
+  color: #333333;            /* Chữ đen */
+  border: 1px solid #cccccc; /* Viền xám nhạt cho tệp màu giao diện */
+}
+
+/* Đổi luôn màu khi di chuột vào (tùy chọn cho đẹp) */
+body.light-mode #lang-select:hover {
+  background-color: #f0f0f0;
+}
+
+body.light-mode #file-list li:hover {
+  background-color: #e4e6f1; /* Hover màu xanh xám nhạt */
+}
+
+/* --- Chọn ngôn ngữ --- */
+#lang-select {
+  background-color: #3c3c3c;
+  color: #fff;
+  border: 1px solid #555;
+  padding: 3px 8px;
+  font-size: 12px;
+  border-radius: 3px;
+  margin-right: 15px; /* Tăng khoảng cách với nút Submit */
+  cursor: pointer;
+}
+
+/* Đảm bảo khung Monaco có chiều cao để gõ được code */
+#editor-container {
+  flex-grow: 1;
+  height: calc(100vh - 50px); /* Ép nó chiếm hết chiều cao màn hình trừ thanh toolbar */
+  width: 100%;
+}
