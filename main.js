@@ -26,6 +26,7 @@ function createWindow () {
 
   // load the index.html of the app.
   mainWindow.loadFile('index.html')
+  //mainWindow.webContents.openDevTools(); // devtools
 
   // ===============================================================================
   // ---> 4. ADDED: Vẽ ra cái Menu mới đè lên cái Menu mặc định <---
@@ -52,6 +53,7 @@ function createWindow () {
             }
           }
         },
+        
         // [ADDED]: Nút mở Folder để ném vào cây thư mục
         {
           label: 'Open Folder...',
@@ -59,34 +61,43 @@ function createWindow () {
             const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
               properties: ['openDirectory']
             });
-            
-            if (!canceled) {
-              const folderPath = filePaths[0];
-              try {
-                const files = fs.readdirSync(folderPath);
-                const items = [];
-                
-                // Dùng vòng lặp for thay vì map để dễ bẫy lỗi từng file
-                for (const file of files) {
-                  try {
-                    const fullPath = path.join(folderPath, file);
-                    const isDir = fs.statSync(fullPath).isDirectory();
-                    items.push({
-                      name: file,
-                      path: fullPath,
-                      isDirectory: isDir
-                    });
-                  } catch (err) {
-                    // Nếu gặp file bị khóa/cấm đọc -> Bỏ qua không làm sập app
-                    console.log("Bỏ qua file không có quyền đọc:", file);
+
+            if (!canceled && filePaths.length > 0) {
+              const rootFolderPath = filePaths[0];
+
+              // HÀM ĐỆ QUY: Quét sạch sành sanh mọi ngóc ngách
+              function buildTree(dirPath) {
+                const result = [];
+                try {
+                  const files = fs.readdirSync(dirPath);
+                  for (const file of files) {
+                    // Bỏ qua mấy thư mục chà bá hoặc file ẩn để app không bị treo
+                    if (file === 'node_modules' || file === '.git') continue;
+
+                    const fullPath = path.join(dirPath, file);
+                    try {
+                      const isDir = fs.statSync(fullPath).isDirectory();
+                      if (isDir) {
+                        result.push({
+                          name: file,
+                          path: fullPath,
+                          isDirectory: true,
+                          children: buildTree(fullPath) // ĐỆ QUY TẠI ĐÂY NÈ BRO
+                        });
+                      } else {
+                        result.push({ name: file, path: fullPath, isDirectory: false });
+                      }
+                    } catch (e) { /* Bỏ qua file lỗi quyền */ }
                   }
+                } catch (error) {
+                  console.error("Lỗi đọc thư mục:", error);
                 }
-                
-                // Gửi mảng items đã lọc an toàn về cho renderer.js
-                mainWindow.webContents.send('folder-opened', { items, folderPath });
-              } catch (error) {
-                console.error("Lỗi khi đọc folder chính:", error);
+                return result;
               }
+
+              const treeData = buildTree(rootFolderPath);
+              // Ném nguyên cái cây phả hệ này sang UI
+              mainWindow.webContents.send('folder-opened', { items: treeData, folderPath: rootFolderPath });
             }
           }
         },
@@ -144,13 +155,12 @@ ipcMain.on('save-file', (event, { filePath, content }) => {
 // ---> KẾT THÚC CỤC LƯU FILE <---
 // ==================================================================================
 
-// [ADDED]: Lắng nghe yêu cầu đọc file từ Sidebar
+// Lắng nghe yêu cầu đọc file từ Sidebar
 ipcMain.on('request-read-file', (event, filePath) => {
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
-    // Đọc xong thì tận dụng luôn kênh 'file-open' cũ để bơm text vào Editor
-    event.sender.send('file-open', { content, filePath });
-  } catch (error) {
-    console.error("Lỗi khi đọc file:", error);
+    mainWindow.webContents.send('file-open', { filePath, content });
+  } catch (err) {
+    console.error("Lỗi không đọc được file:", err);
   }
 });

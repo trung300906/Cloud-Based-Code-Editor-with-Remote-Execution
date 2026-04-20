@@ -1,6 +1,6 @@
 // [ADDED]: Khai báo biến lưu đường dẫn file hiện tại và lấy cái khung gõ code
 let currentFilePath = null;
-const textArea = document.getElementById('code-input');
+let editor; // Biến lưu trữ bản thể của Editor
 
 // [ADDED]: Xử lý khi bấm File -> New (Xóa trắng Editor)
 window.electronAPI.onNewFile(() => {
@@ -20,9 +20,6 @@ window.electronAPI.onFileSaved((path) => {
   document.title = currentFilePath;
 });
 
-// Biến lưu trữ bản thể của Editor
-let editor;
-
 // 1. Cấu hình đường dẫn kéo file lõi Monaco
 require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }});
 
@@ -30,131 +27,121 @@ require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-e
 require(['vs/editor/editor.main'], function() {
   editor = monaco.editor.create(document.getElementById('editor-container'), {
     value: '//Enter your code here...',
-    language: 'javascript', 
-    theme: 'vs-dark',       
-    automaticLayout: true   
+    language: 'cpp', 
+    theme: 'vs-dark', // Giao diện dark mode cực ngầu
+    automaticLayout: true // Tự động co giãn theo cửa sổ
+  });
+
+  // [ADDED]: Lắng nghe lệnh Save từ Menu (Ctrl+S)
+  window.electronAPI.onSaveRequest((isSaveAs) => {
+    const content = editor.getValue(); // Lấy code đang gõ
+    if (isSaveAs || !currentFilePath) {
+      // Nếu là Save As hoặc file mới chưa có tên -> Mở hộp thoại
+      window.electronAPI.sendSaveFile({ filePath: null, content });
+    } else {
+      // Ghi đè thẳng tay
+      window.electronAPI.sendSaveFile({ filePath: currentFilePath, content });
+    }
   });
 });
 
-// 3. Xử lý nút Submit làm cảnh (sau này Backend thêm logic vào đây)
-document.getElementById('submit-btn').addEventListener('click', () => {
-  if (editor) {
-    alert("Đã Submit thành công! (Code hiện tại đã được in ra console)");
-    console.log("Nội dung gửi đi Backend:\n", editor.getValue());
-  }
-});
-
-// 3.5. XỬ LÝ CHUYỂN ĐỔI THEME DARK/LIGHT 
-let isDarkMode = true; // Biến trạng thái, mặc định là đang bật
-const themeBtn = document.getElementById('theme-toggle-btn');
-
-themeBtn.addEventListener('click', () => {
-  isDarkMode = !isDarkMode; // Lật ngược trạng thái (True thành False, False thành True)
-  
-  if (isDarkMode) {
-    // 1. Tháo lớp áo light-mode ra khỏi thẻ <body>
-    document.body.classList.remove('light-mode');
-    // 2. Đổi chữ trên nút
-    themeBtn.textContent = '🌙 Dark Mode: ON';
-    // 3. Ra lệnh cho Monaco đổi sang Theme đen
-    monaco.editor.setTheme('vs-dark'); 
-  } else {
-    // 1. Mặc lớp áo light-mode vào thẻ <body>
-    document.body.classList.add('light-mode');
-    // 2. Đổi chữ trên nút
-    themeBtn.textContent = '☀️ Dark Mode: OFF';
-    // 3. Ra lệnh cho Monaco đổi sang Theme trắng
-    monaco.editor.setTheme('vs'); 
-  }
-});
-
-// 4. Xử lý mở File -> Quăng text vào Editor
+// --- XỬ LÝ ĐỔ NỘI DUNG CODE VÀO EDITOR ---
 window.electronAPI.onOpenFile((data) => {
-  /* if (editor) {
-    editor.setValue(data.content); 
-  } */
- if (editor) {
-    editor.setValue(data.content); 
-    
-    // Tự động nhận diện ngôn ngữ dựa vào đuôi file
-    if (data.filePath) {
-      if (data.filePath.endsWith('.py')) {
-        currentLangFlag = 'python';
-        document.getElementById('lang-select').value = 'python'; // Đổi luôn cái dropdown trên UI
-        monaco.editor.setModelLanguage(editor.getModel(), 'python');
-      } else if (data.filePath.endsWith('.cpp')) {
-         currentLangFlag = 'cpp';
-         document.getElementById('lang-select').value = 'cpp';
-         monaco.editor.setModelLanguage(editor.getModel(), 'cpp');
-      }
-    }
-  }
-});
-
-// 5. Xử lý Lưu File (Ctrl+S) -> Moi text từ Editor ra
-window.electronAPI.onSaveRequest(() => {
   if (editor) {
-    window.electronAPI.sendSaveFile({
-      filePath: null, 
-      content: editor.getValue() 
-    });
+    editor.setValue(data.content); // Đổ text vào
+    currentFilePath = data.filePath; // Ghi nhớ đường dẫn để lúc ấn Save nó lưu đúng chỗ
+    document.title = currentFilePath; // Đổi tên cửa sổ app
   }
 });
 
-// 6. Xử lý Lưu File dưới tên khác (Ctrl+Shift+S)
-window.electronAPI.onSaveAsRequest(() => {
-  if (editor) {
-    window.electronAPI.sendSaveFile({
-      filePath: null, 
-      content: editor.getValue()
-    });
-  }
-});
-
-// 7. Xử lý vẽ Cây thư mục (Cơ bản)
+// --- 7. XỬ LÝ ĐỆ QUY VẼ CÂY THƯ MỤC LÊN SIDEBAR ---
 window.electronAPI.onFolderOpened((data) => {
   const fileList = document.getElementById('file-list');
-  fileList.innerHTML = ''; 
+  fileList.innerHTML = ''; // Xóa sạch khung cũ
 
-  data.items.forEach(item => {
-    const li = document.createElement('li');
-    li.textContent = (item.isDirectory ? '📁 ' : '📄 ') + item.name;
-    li.style.cursor = 'pointer';
-    li.style.padding = '5px 0'; 
-    li.style.listStyleType = 'none'; 
+  // HÀM ĐỆ QUY VẼ GIAO DIỆN
+  function createTreeHTML(items, parentElement) {
+    items.forEach(item => {
+      const li = document.createElement('li');
+      li.style.cursor = 'pointer';
+      li.style.padding = '3px 0';
+      li.style.listStyleType = 'none';
 
-    if (!item.isDirectory) {
-      // Nếu là FILE -> Gắn sự kiện click đúp (hoặc click đơn) để đọc
-      li.onclick = () => {
-        // Chỉ chấp nhận đọc file text, bỏ qua file .exe, .png... tránh lỗi giun dế
-        if (item.name.endsWith('.cpp') || item.name.endsWith('.py') || item.name.endsWith('.txt')) {
-          window.electronAPI.requestReadFile(item.path);
-        } else {
-          alert("Chỉ hỗ trợ mở file .cpp, .py hoặc .txt thôi bro!");
+      if (item.isDirectory) {
+        // NẾU LÀ FOLDER: Tạo 1 thẻ span để chứa tên, và 1 thẻ ul (ẩn) để chứa con
+        li.innerHTML = `<span>📁 <strong>${item.name}</strong></span>`;
+        
+        const childrenUl = document.createElement('ul');
+        childrenUl.style.paddingLeft = '15px'; // Thụt lề cho phân biệt cha/con
+        childrenUl.style.display = 'none';     // Đóng thư mục mặc định
+        
+        // Gọi đệ quy để vẽ tiếp tụi con cái bên trong (SỬA LẠI CHỮ children RỒI NÈ =))) )
+        if (item.children) {
+          createTreeHTML(item.children, childrenUl);
         }
-      };
-    } else {
-      // Nếu là FOLDER
-      li.onclick = () => { li.style.fontWeight = li.style.fontWeight === 'bold' ? 'normal' : 'bold'; }
-    }
-    
-    fileList.appendChild(li);
-  });
+
+        // Bấm vào tên folder thì đóng/mở
+        const spanText = li.querySelector('span');
+        spanText.onclick = (e) => {
+          e.stopPropagation(); // Phanh gấp! Không cho click lan sang folder khác
+          const isClosed = childrenUl.style.display === 'none';
+          childrenUl.style.display = isClosed ? 'block' : 'none';
+          spanText.innerHTML = (isClosed ? '📂 <strong>' : '📁 <strong>') + item.name + '</strong>';
+        };
+
+        li.appendChild(childrenUl);
+      } else {
+        // NẾU LÀ FILE: Click là mở code
+        li.textContent = '📄 ' + item.name;
+        li.onclick = (e) => {
+          e.stopPropagation();
+          if (item.name.match(/\.(cpp|py|txt|js|html|css|json|md)$/i)) {
+            window.electronAPI.requestReadFile(item.path);
+          } else {
+            alert("App này chỉ đọc file text/code thôi bro ơi!");
+          }
+        };
+      }
+      
+      parentElement.appendChild(li);
+    });
+  }
+
+  // Khởi động nghi thức đệ quy
+  createTreeHTML(data.items, fileList);
 });
 
 // --- XỬ LÝ ĐỔI NGÔN NGỮ (C++ / PYTHON) ---
 let currentLangFlag = 'cpp'; // Cờ hiệu mặc định
 const langSelect = document.getElementById('lang-select');
 
-langSelect.addEventListener('change', (e) => {
-  currentLangFlag = e.target.value; // Cập nhật cờ hiệu
-  
-  if (editor) {
-    // Ép Monaco đổi bộ Highlight Syntax (nhận diện cú pháp)
-    monaco.editor.setModelLanguage(editor.getModel(), currentLangFlag);
-  }
-  console.log("Đã chuyển mode sang:", currentLangFlag);
-});
-//Khi bấm submit, chỉ cần gom cái currentLangFlag với editor.getValue() ném đi là server biết 
-//đang dùng ngôn ngữ nào
+if (langSelect) {
+  langSelect.addEventListener('change', (e) => {
+    currentLangFlag = e.target.value;
+    if (editor) {
+      const monacoLang = currentLangFlag === 'python' ? 'python' : 'cpp';
+      monaco.editor.setModelLanguage(editor.getModel(), monacoLang);
+    }
+  });
+}
 
+// --- XỬ LÝ NÚT THEME TOGGLE ---
+const themeBtn = document.getElementById('theme-toggle-btn');
+let isDarkMode = true; // Mặc định mở app lên là Dark mode
+
+if (themeBtn) {
+  themeBtn.addEventListener('click', () => {
+    isDarkMode = !isDarkMode; // Đảo ngược trạng thái
+    
+    // Đổi màu nền (thêm/xóa class 'light-mode' ở thẻ <body>)
+    if (isDarkMode) {
+      document.body.classList.remove('light-mode');
+      themeBtn.textContent = '🌙 Dark Mode: ON';
+      if (editor) monaco.editor.setTheme('vs-dark'); // Monaco Dark
+    } else {
+      document.body.classList.add('light-mode');
+      themeBtn.textContent = '☀️ Light Mode: ON';
+      if (editor) monaco.editor.setTheme('vs'); // Monaco Light
+    }
+  });
+}
