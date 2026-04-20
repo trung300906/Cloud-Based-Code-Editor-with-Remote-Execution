@@ -21,7 +21,7 @@ git clone https://github.com/trung300906/Cloud-Based-Code-Editor-with-Remote-Exe
 cd <tên-thư-mục-project>
 git checkout UI/UX
 \`\`\`
-
+sau đó vào folder UI
 **Bước 2:** Cài đặt các thư viện cần thiết (Chỉ cần chạy 1 lần)
 \`\`\`bash
 npm install
@@ -36,3 +36,4 @@ npm start
 ## Ghi chú cho Dev
 - Menu mở thư mục nằm ở: **File > Open Folder** (Trên thanh công cụ của cửa sổ ứng dụng).
 - Nếu sửa code ở `main.js` hoặc `preload.js`, vui lòng tắt terminal (Ctrl+C) và chạy lại `npm start`.
+- Lưu ý rằng là nodejs và lẫn npm cần được install trên chính máy của bạn
