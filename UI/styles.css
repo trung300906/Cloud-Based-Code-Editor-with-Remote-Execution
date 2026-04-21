@@ -384,8 +384,137 @@ body.light-mode .tree-inline-input {
 }
 
 /* =====================================================================
-   BREADCRUMB BAR
+   TAB BAR — VS Code style
    ===================================================================== */
+#tab-bar {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  background-color: #252526;
+  height: 35px;
+  min-height: 35px;
+  flex-shrink: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;        /* Firefox */
+  border-bottom: 1px solid #1a1a1a;
+}
+#tab-bar::-webkit-scrollbar { display: none; }  /* Chrome/Edge */
+
+/* ---- Single tab ---- */
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px 0 10px;
+  height: 35px;
+  min-width: 80px;
+  max-width: 180px;
+  flex-shrink: 0;
+  cursor: pointer;
+  background-color: #2d2d2d;
+  border-right: 1px solid #1a1a1a;
+  position: relative;
+  user-select: none;
+  white-space: nowrap;
+  transition: background-color 0.1s;
+  box-sizing: border-box;
+}
+
+/* Top border accent on active tab */
+.tab::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: transparent;
+  transition: background 0.1s;
+}
+.tab.active::before { background: #0078d4; }
+
+.tab:hover  { background-color: #303030; }
+.tab.active { background-color: #1e1e1e; border-bottom-color: #1e1e1e; }
+
+/* ---- Tab icon ---- */
+.tab-file-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  line-height: 1;
+}
+
+/* ---- Tab name ---- */
+.tab-name {
+  font-size: 13px;
+  color: #9d9d9d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+  line-height: 35px;
+}
+.tab.active .tab-name { color: #cccccc; }
+
+/* ---- Modified dot ● ---- */
+.tab-modified-dot {
+  flex-shrink: 0;
+  font-size: 11px;
+  width: 16px;
+  text-align: center;
+  color: #cccccc;
+  display: none;        /* hidden by default */
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+/* Show dot only on modified tabs (not hovering) */
+.tab.modified .tab-modified-dot      { display: flex; }
+.tab.modified:hover .tab-modified-dot { display: none; }
+
+/* ---- Close button × ---- */
+.tab-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 15px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  opacity: 0;           /* hidden until needed */
+  transition: opacity 0.1s, background-color 0.1s, color 0.1s;
+}
+/* Show × on hover or active (unmodified tabs) */
+.tab:hover .tab-close,
+.tab.active .tab-close       { opacity: 1; }
+/* On modified tabs: × shown only while hovering (replaces dot) */
+.tab.modified .tab-close     { opacity: 0; }
+.tab.modified:hover .tab-close { opacity: 1; }
+
+.tab-close:hover {
+  background-color: rgba(255,255,255,0.15);
+  color: #fff;
+}
+
+/* ---- Light mode overrides ---- */
+body.light-mode #tab-bar          { background-color: #ececec; border-bottom-color: #d0d0d0; }
+body.light-mode .tab              { background-color: #e0e0e0; border-right-color: #ccc; }
+body.light-mode .tab:hover        { background-color: #d8d8d8; }
+body.light-mode .tab.active       { background-color: #f3f3f3; border-bottom-color: #f3f3f3; }
+body.light-mode .tab.active::before { background: #0060c0; }
+body.light-mode .tab-name         { color: #666; }
+body.light-mode .tab.active .tab-name { color: #333; }
+body.light-mode .tab-modified-dot { color: #333; }
+body.light-mode .tab-close        { color: #555; }
+body.light-mode .tab-close:hover  { background-color: rgba(0,0,0,0.1); color: #000; }
+
+
 .breadcrumb-bar {
   display: flex;
   align-items: center;
