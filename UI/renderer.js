@@ -107,37 +107,154 @@ const SVG = {
 let currentFilePath = null;
 let currentDirPath  = null;
 let rootFolderPath  = null;
-let editor;
 let selectedFileEl  = null;
 
 // =====================================================================
-// TAB SYSTEM
+// PANE & TAB SYSTEM
 // =====================================================================
-const tabs        = new Map();
-let activeTabId   = null;
-let tabCounter    = 0;
-let monacoReady   = false;
-const pendingOpen = [];
+const panes        = [];
+let focusedPaneIdx = 0;
+let paneIdCounter  = 0;
+
+const tabs         = new Map();
+let tabCounter     = 0;
+let monacoReady    = false;
+const pendingOpen  = [];
+
+function getFocusedPane()    { return panes[focusedPaneIdx] || panes[0]; }
+function getPaneById(id)     { return panes.find(p => p.id === id); }
+function getPaneForTab(tid)  { return panes.find(p => p.tabIds.includes(tid)); }
+
+function createPane() {
+  const id = ++paneIdCounter;
+  const el = document.createElement('div');
+  el.className = 'editor-pane';
+  el.dataset.paneId = id;
+
+  const tabBarEl = document.createElement('div');
+  tabBarEl.className = 'tab-bar';
+
+  const breadcrumbEl = document.createElement('div');
+  breadcrumbEl.className = 'breadcrumb-bar';
+  breadcrumbEl.innerHTML = '<span class="bc-segment bc-file">untitled</span>';
+
+  const containerEl = document.createElement('div');
+  containerEl.className = 'pane-editor-container';
+
+  el.appendChild(tabBarEl);
+  el.appendChild(breadcrumbEl);
+  el.appendChild(containerEl);
+
+  const mainEditor = document.getElementById('main-editor');
+  if (panes.length > 0) {
+    const handle = document.createElement('div');
+    handle.className = 'pane-resize-handle';
+    mainEditor.appendChild(handle);
+    initPaneResize(handle);
+  }
+  mainEditor.appendChild(el);
+
+  const pane = { id, el, tabBarEl, breadcrumbEl, containerEl, editor: null, tabIds: [], activeTabId: null };
+  panes.push(pane);
+
+  el.addEventListener('mousedown', () => focusPane(id), true);
+
+  if (monacoReady) {
+    pane.editor = monaco.editor.create(containerEl, {
+      value: '', language: 'plaintext',
+      theme: document.body.classList.contains('light-mode') ? 'vs' : 'vs-dark',
+      automaticLayout: true, fontSize: 14,
+      minimap: { enabled: true }, scrollBeyondLastLine: false,
+    });
+  }
+
+  focusPane(id);
+  return pane;
+}
+
+function removePane(paneId) {
+  const idx = panes.findIndex(p => p.id === paneId);
+  if (idx === -1 || panes.length <= 1) return;
+
+  const pane   = panes[idx];
+  const target = panes[idx === 0 ? 1 : 0];
+
+  [...pane.tabIds].forEach(tid => {
+    pane.tabIds = pane.tabIds.filter(x => x !== tid);
+    pane.tabBarEl.querySelector(`[data-tab-id="${tid}"]`)?.remove();
+    target.tabIds.push(tid);
+    appendTabElToPane(tid, target);
+  });
+
+  if (pane.editor) pane.editor.dispose();
+  const prev = pane.el.previousElementSibling;
+  if (prev?.classList.contains('pane-resize-handle')) prev.remove();
+  else pane.el.nextElementSibling?.classList.contains('pane-resize-handle') && pane.el.nextElementSibling.remove();
+
+  pane.el.remove();
+  panes.splice(idx, 1);
+  // Reset flex on remaining pane
+  target.el.style.flex = '';
+  focusPane(target.id);
+  if (target.tabIds.length > 0) activateTabInPane(target.activeTabId || target.tabIds[0], target);
+}
+
+function focusPane(paneId) {
+  const idx = panes.findIndex(p => p.id === paneId);
+  if (idx === -1) return;
+  focusedPaneIdx = idx;
+  panes.forEach(p => p.el.classList.toggle('focused', p.id === paneId));
+
+  const pane = panes[idx];
+  const tab  = pane.activeTabId ? tabs.get(pane.activeTabId) : null;
+  currentFilePath = tab?.filePath || null;
+  if (tab) {
+    const lang = tab.filePath ? detectLanguage(tab.label) : 'cpp';
+    const sel  = document.getElementById('lang-select');
+    if (sel) sel.value = lang;
+    document.title = tab.filePath || 'untitled';
+  }
+}
+
+function splitEditor() {
+  if (panes.length >= 2) return;
+  const src = getFocusedPane();
+  const tab = src.activeTabId ? tabs.get(src.activeTabId) : null;
+  const newPane = createPane();
+
+  if (tab) {
+    const id    = ++tabCounter;
+    const model = tab.model; // share same Monaco model
+    tabs.set(id, { id, filePath: tab.filePath, label: tab.label, model, isModified: tab.isModified });
+    newPane.tabIds.push(id);
+    appendTabElToPane(id, newPane);
+    activateTabInPane(id, newPane);
+  } else {
+    openOrActivateTab(null, '// Enter your code here...', newPane.id);
+  }
+}
+
+// ---- Tab operations ----
 
 function getTabByPath(fp) {
   for (const t of tabs.values()) if (t.filePath === fp) return t;
   return null;
 }
 
-function openOrActivateTab(filePath, content) {
+function openOrActivateTab(filePath, content, paneId) {
   if (!monacoReady) { pendingOpen.push({ filePath, content }); return; }
 
   const existing = filePath ? getTabByPath(filePath) : null;
-  if (existing) { activateTab(existing.id); return; }
+  if (existing) {
+    const p = getPaneForTab(existing.id);
+    if (p) { focusPane(p.id); activateTab(existing.id); }
+    return;
+  }
 
   const id    = ++tabCounter;
-  const label = filePath ? filePath.split(/[\\/]/).pop()
-                         : `untitled-${id}`;
+  const label = filePath ? filePath.split(/[\\/]/).pop() : `untitled-${id}`;
   const lang  = filePath ? detectLanguage(label) : 'cpp';
-
-  const uri   = filePath
-    ? monaco.Uri.file(filePath)
-    : monaco.Uri.parse(`inmemory://model/${id}`);
+  const uri   = filePath ? monaco.Uri.file(filePath) : monaco.Uri.parse(`inmemory://model/${id}`);
   const model = monaco.editor.createModel(content || '', lang, uri);
 
   model.onDidChangeContent(() => {
@@ -146,103 +263,267 @@ function openOrActivateTab(filePath, content) {
   });
 
   tabs.set(id, { id, filePath, label, model, isModified: false });
-  appendTabEl(id);
-  activateTab(id);
+  const target = paneId ? getPaneById(paneId) : getFocusedPane();
+  if (!target) return;
+  target.tabIds.push(id);
+  appendTabElToPane(id, target);
+  activateTabInPane(id, target);
 }
 
-function activateTab(id) {
-  const tab = tabs.get(id);
-  if (!tab || !editor) return;
-
-  activeTabId    = id;
-  currentFilePath = tab.filePath;
-
-  editor.setModel(tab.model);
-  editor.focus();
-
-  const lang = tab.filePath ? detectLanguage(tab.label) : 'cpp';
-  const sel  = document.getElementById('lang-select');
-  if (sel) sel.value = lang;
-
-  updateBreadcrumb(tab.filePath);
-  document.title = tab.filePath || 'untitled';
-
-  document.querySelectorAll('.tab').forEach(el =>
-    el.classList.toggle('active', Number(el.dataset.tabId) === id));
+function activateTab(tabId) {
+  const pane = getPaneForTab(tabId);
+  if (!pane) return;
+  focusPane(pane.id);
+  activateTabInPane(tabId, pane);
 }
 
-function closeTab(id) {
-  const tab = tabs.get(id);
-  if (!tab) return;
+function activateTabInPane(tabId, pane) {
+  const tab = tabs.get(tabId);
+  if (!tab || !pane?.editor) return;
 
-  if (tab.isModified) {
-    const yes = confirm(`"${tab.label}" có thay đổi chưa lưu. Đóng vẫn tiếp tục?`);
-    if (!yes) return;
+  pane.activeTabId = tabId;
+  pane.editor.setModel(tab.model);
+
+  if (pane === getFocusedPane()) {
+    currentFilePath = tab.filePath;
+    pane.editor.focus();
+    const lang = tab.filePath ? detectLanguage(tab.label) : 'cpp';
+    const sel  = document.getElementById('lang-select');
+    if (sel) sel.value = lang;
+    document.title = tab.filePath || 'untitled';
   }
 
-  tab.model.dispose();
-  tabs.delete(id);
+  updateBreadcrumb(tab.filePath, pane);
+  pane.tabBarEl.querySelectorAll('.tab').forEach(el =>
+    el.classList.toggle('active', Number(el.dataset.tabId) === tabId));
+}
 
-  const el = document.querySelector(`.tab[data-tab-id="${id}"]`);
-  if (el) el.remove();
+function closeTab(tabId) {
+  const tab = tabs.get(tabId);
+  if (!tab) return;
+  if (tab.isModified && !confirm(`"${tab.label}" có thay đổi chưa lưu. Đóng vẫn tiếp tục?`)) return;
 
-  if (activeTabId === id) {
-    const ids = [...tabs.keys()];
-    if (ids.length > 0) {
-      activateTab(ids[ids.length - 1]);
+  const pane = getPaneForTab(tabId);
+  if (!pane) return;
+
+  let modelShared = false;
+  for (const [tid, t] of tabs) { if (tid !== tabId && t.model === tab.model) { modelShared = true; break; } }
+  if (!modelShared) tab.model.dispose();
+
+  tabs.delete(tabId);
+  pane.tabIds = pane.tabIds.filter(x => x !== tabId);
+  pane.tabBarEl.querySelector(`[data-tab-id="${tabId}"]`)?.remove();
+
+  if (pane.activeTabId === tabId) {
+    if (pane.tabIds.length > 0) {
+      activateTabInPane(pane.tabIds[pane.tabIds.length - 1], pane);
+    } else if (panes.length > 1) {
+      removePane(pane.id);
     } else {
-      activeTabId    = null;
-      currentFilePath = null;
-      editor.setModel(monaco.editor.createModel('', 'plaintext'));
-      updateBreadcrumb(null);
+      pane.activeTabId = null;
+      currentFilePath  = null;
+      if (pane.editor) pane.editor.setModel(monaco.editor.createModel('', 'plaintext'));
+      updateBreadcrumb(null, pane);
       document.title = 'RCE App';
     }
   }
 }
 
-function appendTabEl(id) {
-  const bar = document.getElementById('tab-bar');
-  if (!bar) return;
-  bar.appendChild(buildTabEl(id));
-  setTimeout(() => bar.querySelector(`[data-tab-id="${id}"]`)?.scrollIntoView({ inline: 'nearest' }), 0);
+function appendTabElToPane(tabId, pane) {
+  if (!pane?.tabBarEl) return;
+  pane.tabBarEl.appendChild(buildTabEl(tabId, pane));
+  setTimeout(() => pane.tabBarEl.querySelector(`[data-tab-id="${tabId}"]`)?.scrollIntoView({ inline: 'nearest' }), 0);
 }
 
-function buildTabEl(id) {
-  const tab = tabs.get(id);
+function buildTabEl(tabId, pane) {
+  const tab = tabs.get(tabId);
   const el  = document.createElement('div');
-  el.className  = `tab${id === activeTabId ? ' active' : ''}${tab.isModified ? ' modified' : ''}`;
-  el.dataset.tabId = id;
+  el.className = `tab${pane?.activeTabId === tabId ? ' active' : ''}${tab.isModified ? ' modified' : ''}`;
+  el.dataset.tabId = tabId;
   el.title = tab.filePath || tab.label;
+  el.draggable = true;
 
   el.innerHTML = `
     <span class="tab-file-icon">${tab.filePath ? getBcFileIcon(tab.label) : BC_ICON.__default__}</span>
-    <span class="tab-name">${tab.label}</span>
+    <span class="tab-name">${escapeHtml(tab.label)}</span>
     <span class="tab-modified-dot" title="Unsaved changes">●</span>
-    <button class="tab-close" title="Close (middle-click)">×</button>
+    <button class="tab-close" title="Close">×</button>
   `;
 
-  el.addEventListener('click', (e) => {
-    if (e.target.closest('.tab-close')) return;
-    activateTab(id);
+  el.addEventListener('click', (e) => { if (!e.target.closest('.tab-close')) activateTab(tabId); });
+  el.querySelector('.tab-close').addEventListener('click', (e) => { e.stopPropagation(); closeTab(tabId); });
+  el.addEventListener('mousedown', (e) => { if (e.button === 1) { e.preventDefault(); closeTab(tabId); } });
+
+  el.addEventListener('dragstart', (e) => {
+    e.dataTransfer.setData('text/plain', String(tabId));
+    e.dataTransfer.effectAllowed = 'move';
+    el.classList.add('dragging');
+    setTimeout(() => showDropZones(), 0);
   });
-  el.querySelector('.tab-close').addEventListener('click', (e) => {
-    e.stopPropagation(); closeTab(id);
-  });
-  el.addEventListener('mousedown', (e) => {
-    if (e.button === 1) { e.preventDefault(); closeTab(id); }
+  el.addEventListener('dragend', () => {
+    el.classList.remove('dragging');
+    hideDropZones();
   });
 
   return el;
 }
 
-function refreshTabEl(id) {
-  const bar = document.getElementById('tab-bar');
-  if (!bar) return;
-  const old = bar.querySelector(`[data-tab-id="${id}"]`);
-  if (!old) return;
-  const tab = tabs.get(id);
+// =====================================================================
+// TAB DRAG & DROP — split / move between panes
+// =====================================================================
+let _dropOverlay = null;
+
+function showDropZones() {
+  if (_dropOverlay) return;
+  _dropOverlay = document.createElement('div');
+  _dropOverlay.className = 'drop-overlay';
+
+  if (panes.length === 1) {
+    _dropOverlay.innerHTML = `
+      <div class="drop-zone drop-zone-left" data-drop="left"></div>
+      <div class="drop-zone drop-zone-right" data-drop="right"></div>
+    `;
+  } else {
+    panes.forEach(p => {
+      const zone = document.createElement('div');
+      zone.className = 'drop-zone drop-zone-pane';
+      zone.dataset.drop = 'pane';
+      zone.dataset.paneId = p.id;
+      zone.style.flex = p.el.style.flex || '1';
+      _dropOverlay.appendChild(zone);
+    });
+  }
+
+  _dropOverlay.querySelectorAll('.drop-zone').forEach(zone => {
+    zone.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; zone.classList.add('drop-hover'); });
+    zone.addEventListener('dragleave', () => zone.classList.remove('drop-hover'));
+    zone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const tabId = Number(e.dataTransfer.getData('text/plain'));
+      const action = zone.dataset.drop;
+
+      if (action === 'left' || action === 'right') {
+        handleDropSplit(tabId, action);
+      } else if (action === 'pane') {
+        handleDropToPane(tabId, Number(zone.dataset.paneId));
+      }
+      hideDropZones();
+    });
+  });
+
+  document.getElementById('main-editor').appendChild(_dropOverlay);
+}
+
+function hideDropZones() {
+  if (_dropOverlay) { _dropOverlay.remove(); _dropOverlay = null; }
+}
+
+function handleDropSplit(tabId, side) {
+  if (panes.length >= 2) return;
+  const srcPane = getPaneForTab(tabId);
+  if (!srcPane) return;
+
+  const newPane = createPane();
+
+  // Move the dragged tab to the new pane
+  moveTabToPane(tabId, newPane.id);
+
+  // If dropped on left, the new pane should be first
+  if (side === 'left') {
+    const mainEditor = document.getElementById('main-editor');
+    const handle = mainEditor.querySelector('.pane-resize-handle');
+    if (handle) mainEditor.insertBefore(newPane.el, handle);
+    mainEditor.insertBefore(newPane.el, mainEditor.firstChild);
+    // Swap in panes array
+    const idx = panes.indexOf(newPane);
+    panes.splice(idx, 1);
+    panes.unshift(newPane);
+    focusedPaneIdx = 0;
+  }
+
+  focusPane(newPane.id);
+  if (newPane.tabIds.length > 0) activateTabInPane(newPane.tabIds[0], newPane);
+}
+
+function handleDropToPane(tabId, targetPaneId) {
+  const srcPane = getPaneForTab(tabId);
+  if (!srcPane || srcPane.id === targetPaneId) return;
+  moveTabToPane(tabId, targetPaneId);
+}
+
+function moveTabToPane(tabId, targetPaneId) {
+  const tab = tabs.get(tabId);
   if (!tab) return;
-  old.classList.toggle('modified', tab.isModified);
+  const srcPane = getPaneForTab(tabId);
+  const dstPane = getPaneById(targetPaneId);
+  if (!srcPane || !dstPane || srcPane === dstPane) return;
+
+  // Remove from source
+  srcPane.tabIds = srcPane.tabIds.filter(x => x !== tabId);
+  srcPane.tabBarEl.querySelector(`[data-tab-id="${tabId}"]`)?.remove();
+
+  if (srcPane.activeTabId === tabId) {
+    if (srcPane.tabIds.length > 0) {
+      activateTabInPane(srcPane.tabIds[srcPane.tabIds.length - 1], srcPane);
+    } else if (panes.length > 1) {
+      // Don't remove pane mid-drag; set empty state
+      srcPane.activeTabId = null;
+      if (srcPane.editor) srcPane.editor.setModel(monaco.editor.createModel('', 'plaintext'));
+      updateBreadcrumb(null, srcPane);
+    }
+  }
+
+  // Add to destination
+  dstPane.tabIds.push(tabId);
+  appendTabElToPane(tabId, dstPane);
+  focusPane(dstPane.id);
+  activateTabInPane(tabId, dstPane);
+
+  // Auto-close empty source pane
+  if (srcPane.tabIds.length === 0 && panes.length > 1) {
+    removePane(srcPane.id);
+  }
+}
+
+function refreshTabEl(tabId) {
+  const pane = getPaneForTab(tabId);
+  if (!pane) return;
+  const el = pane.tabBarEl.querySelector(`[data-tab-id="${tabId}"]`);
+  if (!el) return;
+  el.classList.toggle('modified', tabs.get(tabId)?.isModified ?? false);
+}
+
+function initPaneResize(handle) {
+  let dragging = false, startX, leftEl, rightEl, lw, rw;
+
+  handle.addEventListener('mousedown', (e) => {
+    leftEl  = handle.previousElementSibling;
+    rightEl = handle.nextElementSibling;
+    if (!leftEl || !rightEl) return;
+    dragging = true; startX = e.clientX;
+    lw = leftEl.offsetWidth; rw = rightEl.offsetWidth;
+    handle.classList.add('active');
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - startX;
+    const total = lw + rw;
+    const newL = Math.max(200, Math.min(lw + dx, total - 200));
+    leftEl.style.flex  = `0 0 ${newL}px`;
+    rightEl.style.flex = `0 0 ${total - newL}px`;
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('active');
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+  });
 }
 
 // =====================================================================
@@ -276,8 +557,8 @@ function getBcFileIcon(filename) {
   return BC_ICON[key] || BC_ICON.__default__;
 }
 
-function updateBreadcrumb(filePath) {
-  const bar = document.getElementById('breadcrumb');
+function updateBreadcrumb(filePath, pane) {
+  const bar = pane ? pane.breadcrumbEl : getFocusedPane()?.breadcrumbEl;
   if (!bar) return;
 
   if (!filePath) {
@@ -404,12 +685,13 @@ function initCustomMenubar() {
 }
 
 function doSave() {
-  if (!editor) return;
-  const content = editor.getValue();
+  const pane = getFocusedPane();
+  if (!pane?.editor) return;
+  const content = pane.editor.getValue();
   window.electronAPI.sendSaveFile({ filePath: currentFilePath || null, content });
-  if (currentFilePath) {
-    const tab = tabs.get(activeTabId);
-    if (tab) { tab.isModified = false; refreshTabEl(activeTabId); }
+  if (currentFilePath && pane.activeTabId) {
+    const tab = tabs.get(pane.activeTabId);
+    if (tab) { tab.isModified = false; refreshTabEl(pane.activeTabId); }
   }
 }
 
@@ -433,12 +715,18 @@ function handleMenuAction(action) {
     case 'toggle-theme':
       document.getElementById('theme-toggle-btn')?.click();
       break;
+    case 'split-editor':
+      splitEditor();
+      break;
+    case 'close-split':
+      if (panes.length > 1) removePane(getFocusedPane().id);
+      break;
 
     case 'undo':
-      if (editor) editor.trigger('menu', 'undo', null);
+      getFocusedPane()?.editor?.trigger('menu', 'undo', null);
       break;
     case 'redo':
-      if (editor) editor.trigger('menu', 'redo', null);
+      getFocusedPane()?.editor?.trigger('menu', 'redo', null);
       break;
     case 'cut':
       document.execCommand('cut');
@@ -450,7 +738,7 @@ function handleMenuAction(action) {
       document.execCommand('paste');
       break;
     case 'select-all':
-      if (editor) editor.trigger('menu', 'editor.action.selectAll', null);
+      getFocusedPane()?.editor?.trigger('menu', 'editor.action.selectAll', null);
       break;
 
     case 'toggle-fullscreen':
@@ -500,6 +788,8 @@ function initKeyboardShortcuts() {
       e.preventDefault();
       const qo = document.getElementById('quick-open-input');
       if (qo) { qo.value = ''; qo.focus(); }
+    } else if (ctrl && !e.shiftKey && e.key === '\\') {
+      e.preventDefault(); handleMenuAction('split-editor');
     } else if (ctrl && e.shiftKey && (e.key === 'P' || e.key === 'p')) {
       e.preventDefault();
       const qo = document.getElementById('quick-open-input');
@@ -524,6 +814,8 @@ const PALETTE_COMMANDS = [
   { label: 'Open File…',               shortcut: 'Ctrl+O',       action: 'open-file' },
   { label: 'Open Folder…',             shortcut: '',              action: 'open-folder' },
   { label: 'Save',                     shortcut: 'Ctrl+S',       action: 'save' },
+  { label: 'Split Editor Right',        shortcut: 'Ctrl+\\',      action: 'split-editor' },
+  { label: 'Close Split Pane',         shortcut: '',              action: 'close-split' },
   { label: 'Toggle Dark / Light Mode', shortcut: '',              action: 'toggle-theme' },
   { label: 'Toggle Fullscreen',        shortcut: 'F11',           action: 'toggle-fullscreen' },
   { label: 'Zoom In',                  shortcut: 'Ctrl+=',       action: 'zoom-in' },
@@ -878,6 +1170,7 @@ function showNameInput(dirPath, type) {
 // INIT: DOMContentLoaded
 // =====================================================================
 window.addEventListener('DOMContentLoaded', () => {
+  createPane();
   buildSidebarToolbar();
   initCustomMenubar();
   initKeyboardShortcuts();
@@ -896,19 +1189,20 @@ window.electronAPI.onNewFile(() => {
 });
 
 window.electronAPI.onFileSaved((path) => {
-  const tab = tabs.get(activeTabId);
+  const pane  = getFocusedPane();
+  const tabId = pane?.activeTabId;
+  const tab   = tabId ? tabs.get(tabId) : null;
   if (tab) {
-    tab.filePath    = path;
-    tab.label       = path.split(/[\\/]/).pop();
-    tab.isModified  = false;
-    const bar = document.getElementById('tab-bar');
-    const old = bar?.querySelector(`[data-tab-id="${activeTabId}"]`);
-    if (old) old.replaceWith(buildTabEl(activeTabId));
-    document.querySelector(`[data-tab-id="${activeTabId}"]`)?.classList.add('active');
+    tab.filePath   = path;
+    tab.label      = path.split(/[\\/]/).pop();
+    tab.isModified = false;
+    const old = pane.tabBarEl.querySelector(`[data-tab-id="${tabId}"]`);
+    if (old) old.replaceWith(buildTabEl(tabId, pane));
+    pane.tabBarEl.querySelector(`[data-tab-id="${tabId}"]`)?.classList.add('active');
   }
   currentFilePath = path;
   document.title  = path;
-  updateBreadcrumb(path);
+  updateBreadcrumb(path, pane);
 });
 
 window.electronAPI.onOpenFile((data) => {
@@ -931,10 +1225,11 @@ function buildLangDropdown() {
 }
 
 function setEditorLanguage(langId) {
-  if (!editor) return;
+  const pane = getFocusedPane();
+  if (!pane?.editor) return;
   if (langId === 'mermaid' && !monaco.languages.getLanguages().find(l => l.id === 'mermaid'))
     registerMermaidLanguage();
-  monaco.editor.setModelLanguage(editor.getModel(), langId);
+  monaco.editor.setModelLanguage(pane.editor.getModel(), langId);
   const sel = document.getElementById('lang-select');
   if (sel) sel.value = langId;
 }
@@ -984,15 +1279,15 @@ require(['vs/editor/editor.main'], function () {
   buildLangDropdown();
   registerMermaidLanguage();
 
-  editor = monaco.editor.create(document.getElementById('editor-container'), {
-    value: '',
-    language: 'cpp',
-    theme: 'vs-dark',
-    automaticLayout: true,
-    fontSize: 14,
-    minimap: { enabled: true },
-    scrollBeyondLastLine: false,
-  });
+  const pane = panes[0];
+  if (pane) {
+    pane.editor = monaco.editor.create(pane.containerEl, {
+      value: '', language: 'cpp',
+      theme: document.body.classList.contains('light-mode') ? 'vs' : 'vs-dark',
+      automaticLayout: true, fontSize: 14,
+      minimap: { enabled: true }, scrollBeyondLastLine: false,
+    });
+  }
 
   monacoReady = true;
   pendingOpen.forEach(({ filePath, content }) => openOrActivateTab(filePath, content));
@@ -1000,12 +1295,10 @@ require(['vs/editor/editor.main'], function () {
 
   if (tabs.size === 0) openOrActivateTab(null, '// Enter your code here...');
 
-  // Sync Monaco theme with what initCustomMenubar already applied to the DOM
   if (localStorage.getItem(LS_THEME) === 'light') {
     monaco.editor.setTheme('vs');
   }
 
-  // Save handler (IPC from main — kept for backwards compat)
   window.electronAPI.onSaveRequest(() => { doSave(); });
 });
 
