@@ -45,54 +45,8 @@ function createWindow() {
     icon: path.join(__dirname, 'bleh.jpg'),
   })
   mainWindow.loadFile('index.html')
-  // mainWindow.webContents.openDevTools();
 
-  const template = [
-    {
-      label: 'File',
-      submenu: [
-        {
-          label: 'New',
-          accelerator: 'CmdOrCtrl+N',
-          click: () => mainWindow.webContents.send('file-new'),
-        },
-        {
-          label: 'Open File...',
-          accelerator: 'CmdOrCtrl+O',
-          click: async () => {
-            const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, { properties: ['openFile'] });
-            if (!canceled) {
-              const content = fs.readFileSync(filePaths[0], 'utf-8');
-              mainWindow.webContents.send('file-open', { content, filePath: filePaths[0] });
-            }
-          },
-        },
-        {
-          label: 'Open Folder...',
-          click: async () => {
-            const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] });
-            if (!canceled && filePaths.length > 0) {
-              const rootFolderPath = filePaths[0];
-              const treeData = buildTree(rootFolderPath);
-              mainWindow.webContents.send('folder-opened', { items: treeData, folderPath: rootFolderPath });
-            }
-          },
-        },
-        {
-          label: 'Save',
-          accelerator: 'CmdOrCtrl+S',
-          click: () => mainWindow.webContents.send('file-save-request'),
-        },
-        { type: 'separator' },
-        { role: 'quit', label: 'Exit' },
-      ],
-    },
-    { role: 'editMenu' },
-    { role: 'viewMenu' },
-    { role: 'windowMenu' },
-  ]
-  const menu = Menu.buildFromTemplate(template)
-  Menu.setApplicationMenu(menu)
+  Menu.setApplicationMenu(null)
 }
 
 // =====================================================================
@@ -105,13 +59,13 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 
 // =====================================================================
-// IPC Handlers
+// IPC Handlers — File operations
 // =====================================================================
 
-// Lưu file
 ipcMain.on('save-file', (event, { filePath, content }) => {
   if (filePath) {
     fs.writeFileSync(filePath, content);
+    mainWindow.webContents.send('file-saved', filePath);
   } else {
     dialog.showSaveDialog(mainWindow).then(result => {
       if (!result.canceled) {
@@ -122,7 +76,6 @@ ipcMain.on('save-file', (event, { filePath, content }) => {
   }
 });
 
-// Đọc file từ sidebar
 ipcMain.on('request-read-file', (event, filePath) => {
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
@@ -132,7 +85,6 @@ ipcMain.on('request-read-file', (event, filePath) => {
   }
 });
 
-// Restore folder khi khởi động lại (state persistence)
 ipcMain.on('request-open-folder', (event, folderPath) => {
   try {
     if (!fs.existsSync(folderPath)) return;
@@ -143,9 +95,7 @@ ipcMain.on('request-open-folder', (event, folderPath) => {
   }
 });
 
-// [NEW] Tạo file/folder mới từ sidebar toolbar
 ipcMain.handle('create-entry', async (event, { type, dirPath, name }) => {
-  // Sanitize: không cho tạo tên chứa path separator
   const safeName = path.basename(name.trim());
   if (!safeName) return { success: false, error: 'Tên không hợp lệ.' };
 
@@ -163,3 +113,54 @@ ipcMain.handle('create-entry', async (event, { type, dirPath, name }) => {
     return { success: false, error: err.message };
   }
 });
+
+// =====================================================================
+// IPC Handlers — Custom menu bar actions (thay thế native menu)
+// =====================================================================
+
+ipcMain.on('menu-new-file', () => {
+  mainWindow.webContents.send('file-new');
+});
+
+ipcMain.on('menu-open-file', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, { properties: ['openFile'] });
+  if (!canceled && filePaths.length > 0) {
+    const content = fs.readFileSync(filePaths[0], 'utf-8');
+    mainWindow.webContents.send('file-open', { content, filePath: filePaths[0] });
+  }
+});
+
+ipcMain.on('menu-open-folder', async () => {
+  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] });
+  if (!canceled && filePaths.length > 0) {
+    const rootFolderPath = filePaths[0];
+    const treeData = buildTree(rootFolderPath);
+    mainWindow.webContents.send('folder-opened', { items: treeData, folderPath: rootFolderPath });
+  }
+});
+
+ipcMain.on('menu-save', () => {
+  mainWindow.webContents.send('file-save-request');
+});
+
+// =====================================================================
+// IPC Handlers — Window / App operations
+// =====================================================================
+
+ipcMain.on('win-minimize', () => mainWindow?.minimize());
+ipcMain.on('win-close', () => mainWindow?.close());
+ipcMain.on('win-reload', () => mainWindow?.reload());
+ipcMain.on('win-toggle-fullscreen', () => {
+  if (mainWindow) mainWindow.setFullScreen(!mainWindow.isFullScreen());
+});
+ipcMain.on('win-toggle-devtools', () => mainWindow?.webContents.toggleDevTools());
+ipcMain.on('win-zoom-in', () => {
+  if (mainWindow) mainWindow.webContents.setZoomLevel(mainWindow.webContents.getZoomLevel() + 0.5);
+});
+ipcMain.on('win-zoom-out', () => {
+  if (mainWindow) mainWindow.webContents.setZoomLevel(mainWindow.webContents.getZoomLevel() - 0.5);
+});
+ipcMain.on('win-reset-zoom', () => {
+  if (mainWindow) mainWindow.webContents.setZoomLevel(0);
+});
+ipcMain.on('app-quit', () => app.quit());
