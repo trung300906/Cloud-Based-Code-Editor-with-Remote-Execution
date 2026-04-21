@@ -1,0 +1,14 @@
+Full build order cho BACKEND cluster:
+Container image — Dockerfile sandbox (read-only OS, tmpfs, non-root user, network=none)
+Warm Pool bootstrapper — docker run -d pre-warm khi server start, lưu container ID list
+Pool Manager — data structure quản lý IDLE/BUSY state của từng container
+Virgin Reset — pkill -9 -u sandbox_user + rm -rf /workspace/*, benchmark dưới 50ms
+Health Monitor — ping TCP mỗi 5s, detect DEAD → kill → spawn replacement
+Job Dispatcher — pick IDLE container, assign job, đánh dấu BUSY
+Job Queue (Redis) — buffer khi pool full BUSY, FIFO + 30s timeout
+Execution worker_thread — push code qua docker exec stdin, stream stdout/stderr từng dòng
+
+Protocol Handler — parse custom packet [LEN][TYPE][PAYLOAD], route RUN → Dispatcher, PING → PONG
+TCP Worker Server — net.createServer port, wire toàn bộ pipeline
+Heartbeat Server :4000 — gửi hearbeat lên middleware
+Integration test — gửi RUN packet end-to-end, verify stream output + reset cycle 

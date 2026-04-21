@@ -430,6 +430,9 @@ function handleMenuAction(action) {
     case 'quit':
       window.electronAPI.appQuit();
       break;
+    case 'toggle-theme':
+      document.getElementById('theme-toggle-btn')?.click();
+      break;
 
     case 'undo':
       if (editor) editor.trigger('menu', 'undo', null);
@@ -493,6 +496,14 @@ function initKeyboardShortcuts() {
       e.preventDefault(); handleMenuAction('save');
     } else if (ctrl && !e.shiftKey && e.key === 'q') {
       e.preventDefault(); handleMenuAction('quit');
+    } else if (ctrl && !e.shiftKey && e.key === 'p') {
+      e.preventDefault();
+      const qo = document.getElementById('quick-open-input');
+      if (qo) { qo.value = ''; qo.focus(); }
+    } else if (ctrl && e.shiftKey && (e.key === 'P' || e.key === 'p')) {
+      e.preventDefault();
+      const qo = document.getElementById('quick-open-input');
+      if (qo) { qo.value = '>'; qo.focus(); qo.dispatchEvent(new Event('input')); }
     } else if (e.key === 'F11') {
       e.preventDefault(); handleMenuAction('toggle-fullscreen');
     } else if (ctrl && e.shiftKey && (e.key === 'I' || e.key === 'i')) {
@@ -501,6 +512,211 @@ function initKeyboardShortcuts() {
       e.preventDefault(); handleMenuAction('reload');
     }
   });
+}
+
+// =====================================================================
+// COMMAND PALETTE / QUICK OPEN (Ctrl+P / Ctrl+Shift+P)
+// =====================================================================
+let _fileIndex = [];
+
+const PALETTE_COMMANDS = [
+  { label: 'New File',                 shortcut: 'Ctrl+N',       action: 'new-file' },
+  { label: 'Open File…',               shortcut: 'Ctrl+O',       action: 'open-file' },
+  { label: 'Open Folder…',             shortcut: '',              action: 'open-folder' },
+  { label: 'Save',                     shortcut: 'Ctrl+S',       action: 'save' },
+  { label: 'Toggle Dark / Light Mode', shortcut: '',              action: 'toggle-theme' },
+  { label: 'Toggle Fullscreen',        shortcut: 'F11',           action: 'toggle-fullscreen' },
+  { label: 'Zoom In',                  shortcut: 'Ctrl+=',       action: 'zoom-in' },
+  { label: 'Zoom Out',                 shortcut: 'Ctrl+-',       action: 'zoom-out' },
+  { label: 'Reset Zoom',               shortcut: 'Ctrl+0',       action: 'reset-zoom' },
+  { label: 'Developer Tools',          shortcut: 'Ctrl+Shift+I', action: 'toggle-devtools' },
+  { label: 'Reload Window',            shortcut: 'Ctrl+Shift+R', action: 'reload' },
+  { label: 'Minimize Window',          shortcut: '',              action: 'minimize' },
+  { label: 'Close Window',             shortcut: '',              action: 'close-window' },
+  { label: 'Exit',                     shortcut: 'Ctrl+Q',       action: 'quit' },
+];
+
+function rebuildFileIndex(items, basePath, result) {
+  result = result || [];
+  for (const item of items) {
+    if (item.isDirectory) {
+      if (item.children) rebuildFileIndex(item.children, basePath, result);
+    } else {
+      const rel = item.path.startsWith(basePath)
+        ? item.path.slice(basePath.length).replace(/^[\\/]/, '')
+        : item.name;
+      result.push({ name: item.name, path: item.path, rel });
+    }
+  }
+  return result;
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function highlightMatch(text, query) {
+  const safe = escapeHtml(text);
+  if (!query) return safe;
+  const lower = safe.toLowerCase();
+  const qLower = escapeHtml(query).toLowerCase();
+  const idx = lower.indexOf(qLower);
+  if (idx === -1) return safe;
+  const before = safe.slice(0, idx);
+  const match  = safe.slice(idx, idx + qLower.length);
+  const after  = safe.slice(idx + qLower.length);
+  return `${before}<span class="qo-highlight">${match}</span>${after}`;
+}
+
+function initQuickOpen() {
+  const input   = document.getElementById('quick-open-input');
+  const results = document.getElementById('quick-open-results');
+  if (!input || !results) return;
+
+  let selectedIdx  = -1;
+  let currentItems = [];
+
+  function render(items, query) {
+    currentItems = items;
+    selectedIdx  = items.length > 0 ? 0 : -1;
+
+    if (items.length === 0) {
+      if (query) {
+        results.innerHTML = '<div class="qo-empty">No results found</div>';
+        results.classList.add('visible');
+      } else {
+        results.classList.remove('visible');
+      }
+      return;
+    }
+
+    results.innerHTML = items.slice(0, 50).map((it, i) => {
+      const sel = i === 0 ? ' selected' : '';
+      if (it.type === 'cmd') {
+        return `<div class="qo-item qo-cmd${sel}" data-idx="${i}">
+          <span class="qo-icon">›</span>
+          <span class="qo-name">${highlightMatch(it.label, query)}</span>
+          ${it.shortcut ? `<span class="qo-shortcut">${it.shortcut}</span>` : ''}
+        </div>`;
+      }
+      const dir = it.rel.includes('/') || it.rel.includes('\\')
+        ? it.rel.replace(/[\\/][^\\/]*$/, '') : '';
+      return `<div class="qo-item${sel}" data-idx="${i}">
+        <span class="qo-icon">${getFileIcon(it.name)}</span>
+        <span class="qo-name">${highlightMatch(it.name, query)}</span>
+        ${dir ? `<span class="qo-path">${escapeHtml(dir)}</span>` : ''}
+      </div>`;
+    }).join('');
+    results.classList.add('visible');
+  }
+
+  function hide() {
+    results.classList.remove('visible');
+    results.innerHTML = '';
+    selectedIdx  = -1;
+    currentItems = [];
+  }
+
+  function execute(idx) {
+    const it = currentItems[idx];
+    if (!it) return;
+    hide();
+    input.value = '';
+    input.blur();
+    if (it.type === 'cmd') {
+      handleMenuAction(it.action);
+    } else {
+      if (isBinaryFile(it.name)) {
+        alert(`"${it.name}" là file binary, không thể mở dạng text.`);
+      } else {
+        window.electronAPI.requestReadFile(it.path);
+      }
+    }
+  }
+
+  function updateSel(newIdx) {
+    const els = results.querySelectorAll('.qo-item');
+    if (els[selectedIdx]) els[selectedIdx].classList.remove('selected');
+    selectedIdx = newIdx;
+    if (els[selectedIdx]) {
+      els[selectedIdx].classList.add('selected');
+      els[selectedIdx].scrollIntoView({ block: 'nearest' });
+    }
+  }
+
+  function refresh() {
+    const raw = input.value;
+
+    // "> …" → command palette mode
+    if (raw.startsWith('>')) {
+      const q = raw.slice(1).trim().toLowerCase();
+      const cmds = q
+        ? PALETTE_COMMANDS.filter(c => c.label.toLowerCase().includes(q))
+        : PALETTE_COMMANDS;
+      render(cmds.map(c => ({ type: 'cmd', ...c })), q);
+      return;
+    }
+
+    // Empty → show commands by default
+    const q = raw.trim().toLowerCase();
+    if (!q) {
+      render(PALETTE_COMMANDS.map(c => ({ type: 'cmd', ...c })), '');
+      return;
+    }
+
+    // Text without ">" → file search
+    const matches = _fileIndex.filter(f =>
+      f.name.toLowerCase().includes(q) || f.rel.toLowerCase().includes(q)
+    );
+    matches.sort((a, b) => {
+      const aN = a.name.toLowerCase(), bN = b.name.toLowerCase();
+      const aInName = aN.includes(q) ? 0 : 1;
+      const bInName = bN.includes(q) ? 0 : 1;
+      if (aInName !== bInName) return aInName - bInName;
+      const aStarts = aN.startsWith(q) ? 0 : 1;
+      const bStarts = bN.startsWith(q) ? 0 : 1;
+      if (aStarts !== bStarts) return aStarts - bStarts;
+      return aN.length - bN.length;
+    });
+    render(matches.map(f => ({ type: 'file', ...f })), q);
+  }
+
+  input.addEventListener('input', refresh);
+
+  input.addEventListener('keydown', (e) => {
+    if (!results.classList.contains('visible')) {
+      if (e.key === 'Escape') { input.blur(); e.stopPropagation(); }
+      return;
+    }
+    const count = Math.min(currentItems.length, 50);
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (selectedIdx < count - 1) updateSel(selectedIdx + 1);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (selectedIdx > 0) updateSel(selectedIdx - 1);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (selectedIdx >= 0) execute(selectedIdx);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      hide();
+      input.value = '';
+      input.blur();
+    }
+    e.stopPropagation();
+  });
+
+  results.addEventListener('mousedown', (e) => {
+    const item = e.target.closest('.qo-item');
+    if (item) { e.preventDefault(); execute(Number(item.dataset.idx)); }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!e.target.closest('.menubar-search')) hide();
+  });
+
+  input.addEventListener('focus', refresh);
 }
 
 // =====================================================================
@@ -665,6 +881,7 @@ window.addEventListener('DOMContentLoaded', () => {
   buildSidebarToolbar();
   initCustomMenubar();
   initKeyboardShortcuts();
+  initQuickOpen();
   initResizeHandle();
 
   const lastFolder = localStorage.getItem(LS_FOLDER);
@@ -811,6 +1028,8 @@ window.electronAPI.onFolderOpened((data) => {
   rootFolderPath = data.folderPath;
   currentDirPath = data.folderPath;
   localStorage.setItem(LS_FOLDER, data.folderPath);
+
+  _fileIndex = rebuildFileIndex(data.items, data.folderPath);
 
   const fileList = document.getElementById('file-list');
   fileList.innerHTML = '';
