@@ -105,10 +105,158 @@ const SVG = {
 // RUNTIME STATE
 // =====================================================================
 let currentFilePath = null;
-let currentDirPath  = null; // folder đang được focus (để tạo file/folder mới)
-let rootFolderPath  = null; // folder gốc đang mở
+let currentDirPath  = null;
+let rootFolderPath  = null;
 let editor;
 let selectedFileEl  = null;
+
+// =====================================================================
+// TAB SYSTEM
+// =====================================================================
+const tabs        = new Map();   // id → { id, filePath, label, model, isModified }
+let activeTabId   = null;
+let tabCounter    = 0;
+let monacoReady   = false;
+const pendingOpen = [];          // queue for files opened before Monaco loads
+
+function getTabByPath(fp) {
+  for (const t of tabs.values()) if (t.filePath === fp) return t;
+  return null;
+}
+
+// Open file in a new tab (or switch to existing tab if already open)
+function openOrActivateTab(filePath, content) {
+  if (!monacoReady) { pendingOpen.push({ filePath, content }); return; }
+
+  // Already open → just switch
+  const existing = filePath ? getTabByPath(filePath) : null;
+  if (existing) { activateTab(existing.id); return; }
+
+  const id    = ++tabCounter;
+  const label = filePath ? filePath.split(/[\\/]/).pop()
+                         : `untitled-${id}`;
+  const lang  = filePath ? detectLanguage(label) : 'cpp';
+
+  // Monaco model — one model per tab, preserves undo/cursor
+  const uri   = filePath
+    ? monaco.Uri.file(filePath)
+    : monaco.Uri.parse(`inmemory://model/${id}`);
+  const model = monaco.editor.createModel(content || '', lang, uri);
+
+  // Mark tab dirty when content changes
+  model.onDidChangeContent(() => {
+    const t = tabs.get(id);
+    if (t && !t.isModified) { t.isModified = true; refreshTabEl(id); }
+  });
+
+  tabs.set(id, { id, filePath, label, model, isModified: false });
+  appendTabEl(id);
+  activateTab(id);
+}
+
+function activateTab(id) {
+  const tab = tabs.get(id);
+  if (!tab || !editor) return;
+
+  activeTabId    = id;
+  currentFilePath = tab.filePath;
+
+  editor.setModel(tab.model);
+  editor.focus();
+
+  // Sync lang dropdown
+  const lang = tab.filePath ? detectLanguage(tab.label) : 'cpp';
+  const sel  = document.getElementById('lang-select');
+  if (sel) sel.value = lang;
+
+  updateBreadcrumb(tab.filePath);
+  document.title = tab.filePath || 'untitled';
+
+  // Highlight active tab in DOM
+  document.querySelectorAll('.tab').forEach(el =>
+    el.classList.toggle('active', Number(el.dataset.tabId) === id));
+}
+
+function closeTab(id) {
+  const tab = tabs.get(id);
+  if (!tab) return;
+
+  // Optional: confirm if modified
+  if (tab.isModified) {
+    const yes = confirm(`"${tab.label}" có thay đổi chưa lưu. Đóng vẫn tiếp tục?`);
+    if (!yes) return;
+  }
+
+  tab.model.dispose();
+  tabs.delete(id);
+
+  // Remove DOM element
+  const el = document.querySelector(`.tab[data-tab-id="${id}"]`);
+  if (el) el.remove();
+
+  if (activeTabId === id) {
+    const ids = [...tabs.keys()];
+    if (ids.length > 0) {
+      activateTab(ids[ids.length - 1]);
+    } else {
+      activeTabId    = null;
+      currentFilePath = null;
+      // Show blank model
+      editor.setModel(monaco.editor.createModel('', 'plaintext'));
+      updateBreadcrumb(null);
+      document.title = 'RCE App';
+    }
+  }
+}
+
+// ---- DOM helpers ----
+
+function appendTabEl(id) {
+  const bar = document.getElementById('tab-bar');
+  if (!bar) return;
+  bar.appendChild(buildTabEl(id));
+  // Scroll new tab into view
+  setTimeout(() => bar.querySelector(`[data-tab-id="${id}"]`)?.scrollIntoView({ inline: 'nearest' }), 0);
+}
+
+function buildTabEl(id) {
+  const tab = tabs.get(id);
+  const el  = document.createElement('div');
+  el.className  = `tab${id === activeTabId ? ' active' : ''}${tab.isModified ? ' modified' : ''}`;
+  el.dataset.tabId = id;
+  el.title = tab.filePath || tab.label;
+
+  el.innerHTML = `
+    <span class="tab-file-icon">${tab.filePath ? getBcFileIcon(tab.label) : BC_ICON.__default__}</span>
+    <span class="tab-name">${tab.label}</span>
+    <span class="tab-modified-dot" title="Unsaved changes">●</span>
+    <button class="tab-close" title="Close (middle-click)">×</button>
+  `;
+
+  el.addEventListener('click', (e) => {
+    if (e.target.closest('.tab-close')) return;
+    activateTab(id);
+  });
+  el.querySelector('.tab-close').addEventListener('click', (e) => {
+    e.stopPropagation(); closeTab(id);
+  });
+  // Middle-click to close
+  el.addEventListener('mousedown', (e) => {
+    if (e.button === 1) { e.preventDefault(); closeTab(id); }
+  });
+
+  return el;
+}
+
+function refreshTabEl(id) {
+  const bar = document.getElementById('tab-bar');
+  if (!bar) return;
+  const old = bar.querySelector(`[data-tab-id="${id}"]`);
+  if (!old) return;
+  const tab = tabs.get(id);
+  if (!tab) return;
+  old.classList.toggle('modified', tab.isModified);
+}
 
 // =====================================================================
 // BREADCRUMB — cập nhật thanh đường dẫn phía trên editor
@@ -320,27 +468,31 @@ window.addEventListener('DOMContentLoaded', () => {
 // FILE EVENT HANDLERS
 // =====================================================================
 window.electronAPI.onNewFile(() => {
-  if (!editor) return;
-  editor.setValue('// Enter your code here...');
-  currentFilePath = null;
-  setEditorLanguage('cpp');
-  document.title = 'New File - RCE App';
-  updateBreadcrumb(null);
+  openOrActivateTab(null, '// Enter your code here...');
 });
 
 window.electronAPI.onFileSaved((path) => {
+  // Update active tab metadata after Save As
+  const tab = tabs.get(activeTabId);
+  if (tab) {
+    const oldLabel  = tab.label;
+    tab.filePath    = path;
+    tab.label       = path.split(/[\\/]/).pop();
+    tab.isModified  = false;
+    // Rebuild tab element to reflect new name/icon
+    const bar = document.getElementById('tab-bar');
+    const old = bar?.querySelector(`[data-tab-id="${activeTabId}"]`);
+    if (old) old.replaceWith(buildTabEl(activeTabId));
+    // Re-apply active state
+    document.querySelector(`[data-tab-id="${activeTabId}"]`)?.classList.add('active');
+  }
   currentFilePath = path;
-  document.title = path;
+  document.title  = path;
   updateBreadcrumb(path);
 });
 
 window.electronAPI.onOpenFile((data) => {
-  if (!editor) return;
-  editor.setValue(data.content);
-  currentFilePath = data.filePath;
-  document.title = data.filePath;
-  setEditorLanguage(detectLanguage(data.filePath.split(/[\\/]/).pop()));
-  updateBreadcrumb(data.filePath);
+  openOrActivateTab(data.filePath, data.content);
 });
 
 // =====================================================================
@@ -413,7 +565,7 @@ require(['vs/editor/editor.main'], function () {
   registerMermaidLanguage();
 
   editor = monaco.editor.create(document.getElementById('editor-container'), {
-    value: '// Enter your code here...',
+    value: '',
     language: 'cpp',
     theme: 'vs-dark',
     automaticLayout: true,
@@ -421,6 +573,14 @@ require(['vs/editor/editor.main'], function () {
     minimap: { enabled: true },
     scrollBeyondLastLine: false,
   });
+
+  // Monaco is ready — open any files queued before this point
+  monacoReady = true;
+  pendingOpen.forEach(({ filePath, content }) => openOrActivateTab(filePath, content));
+  pendingOpen.length = 0;
+
+  // If no tabs were restored, open a blank untitled tab
+  if (tabs.size === 0) openOrActivateTab(null, '// Enter your code here...');
 
   // Restore theme
   const savedTheme = localStorage.getItem(LS_THEME);
@@ -431,13 +591,18 @@ require(['vs/editor/editor.main'], function () {
     if (btn) btn.textContent = '☀️ Light Mode: ON';
   }
 
-  // Save handler
+  // Save handler — also mark active tab as clean
   window.electronAPI.onSaveRequest((isSaveAs) => {
     const content = editor.getValue();
     window.electronAPI.sendSaveFile({
       filePath: (isSaveAs || !currentFilePath) ? null : currentFilePath,
       content,
     });
+    // Mark saved (for known path saves)
+    if (!isSaveAs && currentFilePath) {
+      const tab = tabs.get(activeTabId);
+      if (tab) { tab.isModified = false; refreshTabEl(activeTabId); }
+    }
   });
 
   // Language dropdown
