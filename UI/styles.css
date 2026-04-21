@@ -382,3 +382,89 @@ body.light-mode .tree-inline-input {
   border-color: #0060c0;
   box-shadow: 0 0 0 1px #0060c0;
 }
+
+/* =====================================================================
+   BREADCRUMB BAR
+   ===================================================================== */
+.breadcrumb-bar {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 10px;
+  background-color: #1e1e1e;
+  border-bottom: 1px solid #2a2a2a;
+  flex-shrink: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  gap: 0;
+  /* subtle top border to separate from toolbar */
+  border-top: 1px solid #141414;
+}
+
+.bc-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 0 4px;
+  border-radius: 3px;
+  cursor: default;
+  color: #9d9d9d;
+  transition: color 0.1s, background-color 0.1s;
+  user-select: none;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bc-segment:hover {
+  color: #cccccc;
+  background-color: rgba(255,255,255,0.06);
+}
+
+/* The last segment (filename) is brighter */
+.bc-segment.bc-file {
+  color: #cccccc;
+  font-weight: 400;
+}
+
+.bc-segment.bc-ellipsis {
+  color: #666;
+  cursor: default;
+  letter-spacing: 1px;
+}
+.bc-segment.bc-ellipsis:hover {
+  background: none;
+  color: #666;
+}
+
+/* Separator › */
+.bc-sep {
+  font-size: 13px;
+  color: #555;
+  line-height: 1;
+  padding: 0 1px;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+/* Icon inside segment */
+.bc-icon {
+  font-size: 12px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* ---- Light mode ---- */
+body.light-mode .breadcrumb-bar {
+  background-color: #f3f3f3;
+  border-bottom: 1px solid #ddd;
+  border-top: 1px solid #e0e0e0;
+}
+body.light-mode .bc-segment       { color: #777; }
+body.light-mode .bc-segment:hover { color: #333; background-color: rgba(0,0,0,0.05); }
+body.light-mode .bc-segment.bc-file { color: #333; }
+body.light-mode .bc-sep           { color: #aaa; }
+body.light-mode .bc-segment.bc-ellipsis { color: #aaa; }
+body.light-mode .bc-segment.bc-ellipsis:hover { background: none; color: #aaa; }
