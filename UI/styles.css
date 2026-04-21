@@ -1,161 +1,274 @@
-/* styles.css */
-
-/* Reset cơ bản */
-body, html {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  font-family: sans-serif;
-  overflow: hidden;
-}
-
-.container {
-  display: flex;
-  height: 100vh;
-  width: 100vw;
-}
-
-/* Cột Editor xếp dọc (Toolbar ở trên, Editor ở dưới) */
-.main-editor {
-  flex-grow: 1;
-  display: flex;
-  flex-direction: column; 
-}
-
-/* Thanh công cụ */
-.editor-toolbar {
-  background-color: #252526; 
-  padding: 5px 10px; /* Giảm độ dày của thanh Toolbar */
-  display: flex;
-  justify-content: flex-end; 
-  align-items: center; /* Đảm bảo các nút nằm thẳng hàng ngang */
-  border-bottom: 1px solid #1e1e1e;
-}
-
-/* Nút Submit */
-#submit-btn {
-  background-color: #0e639c; 
-  color: white;
-  border: none;
-  padding: 4px 12px; /* Gọt cho mỏng lại */
-  font-family: sans-serif;
-  font-size: 12px;   /* Đồng bộ cỡ chữ 12px */
-  font-weight: bold; /* Cứ giữ in đậm cho nổi bật nút chính */
-  border-radius: 3px; 
-  cursor: pointer;
-  transition: background-color 0.2s;
-}
-
-#submit-btn:hover {
-  background-color: #1177bb; 
-}
-
-/* Vùng chứa Editor phải flex-grow để đẩy full khoảng trống còn lại */
-#editor-container {
-  width: 100%;
-  flex-grow: 1; 
-}
-
-/* Cột Sidebar */
-.sidebar {
-  width: 250px;
-  background-color: #f0f0f0;
-  border-left: 1px solid #ccc;
-  padding: 10px;
-  overflow-y: auto;
-}
-
-/* Thêm màu nền tối cho toàn bộ app */
-/* MẶC ĐỊNH LÀ DARK MODE */
-body, html {
-  margin: 0;
-  padding: 0;
-  height: 100%;
-  font-family: sans-serif;
-  overflow: hidden;
-  background-color: #1e1e1e; /* Màu nền đen chuẩn VS Code */
-  color: #cccccc; /* Chữ xám nhạt */
-}
-
-/* Sửa lại class sidebar */
-.sidebar {
-  width: 250px;
-  background-color: #252526; /* Đen nhạt hơn nền một xíu */
-  border-left: 1px solid #333333; /* Viền tối màu */
-  padding: 10px;
-  overflow-y: auto;
-}
-
-/* Thêm tí hiệu ứng hover cho mượt khi di chuột vào file */
-#file-list li:hover {
-  background-color: #37373d;
-}
-
-/* --- NÚT TOGGLE THEME (ĐỔI SANG LIGHT MODE) --- */
-#theme-toggle-btn {
-  background-color: transparent;
-  color: inherit; 
-  border: 1px solid #888;
-  padding: 3px 10px; /* Thu gọn trên dưới, ép mỏng lại */
-  font-size: 12px;   /* Ép chữ nhỏ gọn lại */
-  border-radius: 3px;
-  cursor: pointer;
-  margin-right: 8px; /* Thu hẹp khoảng cách giữa các nút */
-  font-weight: normal; /* Bỏ in đậm đi cho thanh thoát */
-}
-
-#theme-toggle-btn:hover {
-  background-color: rgba(128, 128, 128, 0.2);
-}
-
-/* --- LỚP ÁO LIGHT MODE --- */
-/* Khi body được gắn class "light-mode", toàn bộ màu bên trong sẽ bị ép đổi */
-body.light-mode {
-  background-color: #ffffff;
-  color: #333333;
-}
-
-body.light-mode .sidebar {
-  background-color: #f3f3f3;
-  border-left: 1px solid #cccccc;
-}
-
-body.light-mode .editor-toolbar {
-  background-color: #dddddd;
-  border-bottom: 1px solid #cccccc;
-}
-
-/* Đổi màu ô chọn ngôn ngữ khi bật Light Mode */
-body.light-mode #lang-select {
-  background-color: #ffffff; /* Nền trắng */
-  color: #333333;            /* Chữ đen */
-  border: 1px solid #cccccc; /* Viền xám nhạt cho tệp màu giao diện */
-}
-
-/* Đổi luôn màu khi di chuột vào (tùy chọn cho đẹp) */
-body.light-mode #lang-select:hover {
-  background-color: #f0f0f0;
-}
-
-body.light-mode #file-list li:hover {
-  background-color: #e4e6f1; /* Hover màu xanh xám nhạt */
-}
-
-/* --- Chọn ngôn ngữ --- */
-#lang-select {
-  background-color: #3c3c3c;
-  color: #fff;
-  border: 1px solid #555;
-  padding: 3px 8px;
-  font-size: 12px;
-  border-radius: 3px;
-  margin-right: 15px; /* Tăng khoảng cách với nút Submit */
-  cursor: pointer;
-}
-
-/* Đảm bảo khung Monaco có chiều cao để gõ được code */
-#editor-container {
-  flex-grow: 1;
-  height: calc(100vh - 50px); /* Ép nó chiếm hết chiều cao màn hình trừ thanh toolbar */
-  width: 100%;
-}
+/* =====================================================================
+   RESET & BASE
+   ===================================================================== */
+   body, html {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    font-size: 13px;
+    overflow: hidden;
+    background-color: #1e1e1e;
+    color: #cccccc;
+  }
+  
+  /* =====================================================================
+     LAYOUT
+     ===================================================================== */
+  .container {
+    display: flex;
+    height: 100vh;
+    width: 100vw;
+  }
+  
+  /* Sidebar bên TRÁI (File Explorer) */
+  .sidebar {
+    width: 250px;
+    min-width: 150px;
+    background-color: #252526;
+    border-right: 1px solid #333;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+  
+  /* Phần editor bên phải */
+  .main-editor {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0; /* quan trọng cho flexbox */
+  }
+  
+  /* =====================================================================
+     TOOLBAR
+     ===================================================================== */
+  .editor-toolbar {
+    background-color: #2d2d2d;
+    padding: 4px 10px;
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    border-bottom: 1px solid #1a1a1a;
+    gap: 6px;
+    flex-shrink: 0;
+  }
+  
+  #submit-btn {
+    background-color: #0e639c;
+    color: white;
+    border: none;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: background-color 0.15s;
+  }
+  #submit-btn:hover { background-color: #1177bb; }
+  
+  #theme-toggle-btn {
+    background-color: transparent;
+    color: inherit;
+    border: 1px solid #555;
+    padding: 3px 10px;
+    font-size: 12px;
+    border-radius: 3px;
+    cursor: pointer;
+    transition: background-color 0.15s;
+  }
+  #theme-toggle-btn:hover { background-color: rgba(128,128,128,0.2); }
+  
+  #lang-select {
+    background-color: #3c3c3c;
+    color: #ddd;
+    border: 1px solid #555;
+    padding: 3px 6px;
+    font-size: 12px;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  
+  /* =====================================================================
+     EDITOR CONTAINER
+     ===================================================================== */
+  #editor-container {
+    flex-grow: 1;
+    width: 100%;
+    min-height: 0; /* quan trọng cho flexbox */
+  }
+  
+  /* =====================================================================
+     FILE TREE — VS CODE STYLE
+     ===================================================================== */
+  #file-list {
+    flex-grow: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 4px 0;
+    margin: 0;
+    /* Scrollbar mỏng */
+    scrollbar-width: thin;
+    scrollbar-color: #424242 transparent;
+  }
+  
+  #file-list::-webkit-scrollbar { width: 6px; }
+  #file-list::-webkit-scrollbar-thumb {
+    background-color: #424242;
+    border-radius: 3px;
+  }
+  #file-list::-webkit-scrollbar-thumb:hover { background-color: #555; }
+  
+  /* Header tên thư mục gốc (ALL CAPS như VS Code) */
+  .tree-root-header {
+    padding: 6px 12px 4px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: #bbb;
+    user-select: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  
+  /* Root ul */
+  .tree-root {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  
+  /* ---- TREE ITEM ---- */
+  .tree-item {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  
+  /* ---- LABEL (hàng click được) ---- */
+  .tree-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 8px 1px 0;
+    cursor: pointer;
+    border-radius: 0;
+    user-select: none;
+    white-space: nowrap;
+    overflow: hidden;
+    min-height: 22px;
+    position: relative;
+    color: #cccccc;
+  }
+  .tree-label:hover {
+    background-color: #2a2d2e;
+    color: #fff;
+  }
+  
+  /* File đang được chọn (active) */
+  .tree-label.tree-selected {
+    background-color: #094771 !important;
+    color: #fff;
+  }
+  
+  /* ---- ARROW (▶ / ▼) ---- */
+  .tree-arrow {
+    flex-shrink: 0;
+    width: 16px;
+    text-align: center;
+    font-size: 10px;
+    color: #888;
+    transition: transform 0.1s;
+  }
+  .tree-arrow-spacer {
+    /* file không có arrow, giữ spacer để icon thẳng hàng */
+    visibility: hidden;
+  }
+  
+  /* ---- ICON ---- */
+  .tree-icon {
+    flex-shrink: 0;
+    font-size: 14px;
+    line-height: 1;
+  }
+  
+  /* ---- NAME ---- */
+  .tree-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 13px;
+  }
+  
+  /* ---- CHILDREN LIST + INDENT GUIDE ---- */
+  .tree-children {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: none; /* collapsed by default */
+  
+    /* Indent guide line — đây là cái đường thẳng đứng kiểu VS Code */
+    border-left: 1px solid #404040;
+    margin-left: 16px; /* căn theo tâm icon folder */
+  }
+  
+  /* Hover lên folder thì guide line sáng lên */
+  .tree-item.open > .tree-children:hover,
+  .tree-item.open:hover > .tree-children {
+    border-left-color: #6c6c6c;
+  }
+  
+  /* Khi open thì hiện children */
+  .tree-item.open > .tree-children {
+    display: block;
+  }
+  
+  /* =====================================================================
+     LIGHT MODE OVERRIDES
+     ===================================================================== */
+  body.light-mode {
+    background-color: #f3f3f3;
+    color: #333;
+  }
+  
+  body.light-mode .sidebar {
+    background-color: #f3f3f3;
+    border-right: 1px solid #ddd;
+  }
+  
+  body.light-mode .editor-toolbar {
+    background-color: #e8e8e8;
+    border-bottom: 1px solid #ccc;
+  }
+  
+  body.light-mode .tree-root-header {
+    color: #555;
+  }
+  
+  body.light-mode .tree-label {
+    color: #333;
+  }
+  body.light-mode .tree-label:hover {
+    background-color: #e4e6f1;
+    color: #000;
+  }
+  body.light-mode .tree-label.tree-selected {
+    background-color: #0060c0 !important;
+    color: #fff;
+  }
+  body.light-mode .tree-children {
+    border-left-color: #d0d0d0;
+  }
+  body.light-mode .tree-item.open:hover > .tree-children {
+    border-left-color: #aaa;
+  }
+  body.light-mode .tree-arrow { color: #666; }
+  
+  body.light-mode #lang-select {
+    background-color: #fff;
+    color: #333;
+    border: 1px solid #ccc;
+  }
+  body.light-mode #file-list::-webkit-scrollbar-thumb {
+    background-color: #ccc;
+  }
