@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   sendSaveFile: (data) => ipcRenderer.send('save-file', data),
   onFileSaved: (callback) => ipcRenderer.on('file-saved', (event, path) => callback(path)),
   requestReadFile: (filePath) => ipcRenderer.send('request-read-file', filePath),
-  // [ADDED]: Mở cổng để nhận danh sách file/folder từ Main quăng về
   onFolderOpened: (callback) => ipcRenderer.on('folder-opened', (event, value) => callback(value)),
+  // [ADDED]: Renderer yêu cầu main reload lại folder (dùng khi restore state)
+  requestOpenFolder: (folderPath) => ipcRenderer.send('request-open-folder', folderPath),
 })

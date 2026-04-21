@@ -6,8 +6,44 @@ const fs = require('fs')
 // ----------------------------------------------------------------------------------------------------
 
 // ---> 2. ADDED: Lôi cái mainWindow ra tuốt bên ngoài để các hàm bên dưới xài chung được <---
-let mainWindow; 
+let mainWindow;
 // ------------------------------------------------------------------------------------------
+
+// =====================================================================
+// buildTree: đặt ở MODULE SCOPE để tái dụng (restore state + open folder)
+// SKIP_DIRS: bỏ qua các thư mục rác tốn bộ nhớ khi quét
+// =====================================================================
+const SKIP_DIRS = new Set(['node_modules', '.git', '.svn', '__pycache__', '.cache', 'dist', '.next']);
+
+function buildTree(dirPath) {
+  const result = [];
+  let entries;
+  try {
+    entries = fs.readdirSync(dirPath);
+  } catch (err) {
+    console.error('Lỗi đọc thư mục:', dirPath, err.message);
+    return result;
+  }
+
+  for (const file of entries) {
+    if (SKIP_DIRS.has(file) || file.startsWith('.')) continue;
+    const fullPath = path.join(dirPath, file);
+    try {
+      const stat = fs.statSync(fullPath);
+      if (stat.isDirectory()) {
+        result.push({
+          name: file,
+          path: fullPath,
+          isDirectory: true,
+          children: buildTree(fullPath), // đệ quy
+        });
+      } else {
+        result.push({ name: file, path: fullPath, isDirectory: false });
+      }
+    } catch (e) { /* bỏ qua file không đọc được (permission, symlink loop...) */ }
+  }
+  return result;
+}
 
 function createWindow () {
   // Create the browser window.
@@ -64,39 +100,7 @@ function createWindow () {
 
             if (!canceled && filePaths.length > 0) {
               const rootFolderPath = filePaths[0];
-
-              // HÀM ĐỆ QUY: Quét sạch sành sanh mọi ngóc ngách
-              function buildTree(dirPath) {
-                const result = [];
-                try {
-                  const files = fs.readdirSync(dirPath);
-                  for (const file of files) {
-                    // Bỏ qua mấy thư mục chà bá hoặc file ẩn để app không bị treo
-                    if (file === 'node_modules' || file === '.git') continue;
-
-                    const fullPath = path.join(dirPath, file);
-                    try {
-                      const isDir = fs.statSync(fullPath).isDirectory();
-                      if (isDir) {
-                        result.push({
-                          name: file,
-                          path: fullPath,
-                          isDirectory: true,
-                          children: buildTree(fullPath) // ĐỆ QUY TẠI ĐÂY NÈ BRO
-                        });
-                      } else {
-                        result.push({ name: file, path: fullPath, isDirectory: false });
-                      }
-                    } catch (e) { /* Bỏ qua file lỗi quyền */ }
-                  }
-                } catch (error) {
-                  console.error("Lỗi đọc thư mục:", error);
-                }
-                return result;
-              }
-
               const treeData = buildTree(rootFolderPath);
-              // Ném nguyên cái cây phả hệ này sang UI
               mainWindow.webContents.send('folder-opened', { items: treeData, folderPath: rootFolderPath });
             }
           }
@@ -162,5 +166,22 @@ ipcMain.on('request-read-file', (event, filePath) => {
     mainWindow.webContents.send('file-open', { filePath, content });
   } catch (err) {
     console.error("Lỗi không đọc được file:", err);
+  }
+});
+
+// ==================================================================================
+// [ADDED]: Renderer yêu cầu reload lại folder cũ khi khởi động (state persistence)
+// ==================================================================================
+ipcMain.on('request-open-folder', (event, folderPath) => {
+  try {
+    // Kiểm tra folder vẫn còn tồn tại không
+    if (!fs.existsSync(folderPath)) {
+      event.reply('folder-open-error', `Folder không còn tồn tại: ${folderPath}`);
+      return;
+    }
+    const treeData = buildTree(folderPath);
+    mainWindow.webContents.send('folder-opened', { items: treeData, folderPath });
+  } catch (err) {
+    console.error('Lỗi khi restore folder:', err);
   }
 });
