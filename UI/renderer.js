@@ -111,6 +111,89 @@ let editor;
 let selectedFileEl  = null;
 
 // =====================================================================
+// BREADCRUMB — cập nhật thanh đường dẫn phía trên editor
+// =====================================================================
+// Map ext → SVG-style icon chữ (giống VS Code, không dùng emoji)
+const BC_ICON = {
+  // Folders (special key)
+  __folder__: `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M1 4.5A1 1 0 012 3.5h4l1.5 2H14A1 1 0 0115 6.5v7a1 1 0 01-1 1H2a1 1 0 01-1-1v-9z" fill="#dcb67a" opacity=".9"/></svg>`,
+  // Files by ext
+  cpp   : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#9cdcfe" font-family="monospace">C+</text></svg>`,
+  c     : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#9cdcfe" font-family="monospace">C</text></svg>`,
+  h     : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#9cdcfe" font-family="monospace">H</text></svg>`,
+  py    : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#4ec9b0" font-family="monospace">Py</text></svg>`,
+  js    : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><rect width="16" height="16" rx="2" fill="#f0db4f" opacity=".15"/><text y="13" font-size="11" fill="#f0db4f" font-family="monospace">JS</text></svg>`,
+  ts    : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><rect width="16" height="16" rx="2" fill="#3178c6" opacity=".2"/><text y="13" font-size="11" fill="#3d9fe0" font-family="monospace">TS</text></svg>`,
+  json  : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="10" fill="#cbcb41" font-family="monospace">{}</text></svg>`,
+  md    : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="10" fill="#519aba" font-family="monospace">MD</text></svg>`,
+  html  : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="9"  fill="#e34c26" font-family="monospace">HTML</text></svg>`,
+  css   : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="9"  fill="#563d7c" font-family="monospace">CSS</text></svg>`,
+  rs    : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#dea584" font-family="monospace">Rs</text></svg>`,
+  go    : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#00acd7" font-family="monospace">Go</text></svg>`,
+  yaml  : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="9"  fill="#cbcb41" font-family="monospace">YML</text></svg>`,
+  mmd   : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#a78bfa" font-family="monospace">⬡</text></svg>`,
+  __default__: `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><path d="M4 1h6l4 4v10H4V1z" fill="none" stroke="#cccccc" stroke-width="1.2"/><polyline points="10,1 10,5 14,5" fill="none" stroke="#cccccc" stroke-width="1.2"/></svg>`,
+};
+
+function getBcFileIcon(filename) {
+  const ext = filename.toLowerCase().split('.').pop();
+  const aliases = { cc:'cpp', cxx:'cpp', hpp:'cpp', hh:'cpp', hxx:'cpp',
+                    mjs:'js', cjs:'js', jsx:'js', tsx:'ts',
+                    yml:'yaml', jsonc:'json', htm:'html', scss:'css', less:'css' };
+  const key = aliases[ext] || ext;
+  return BC_ICON[key] || BC_ICON.__default__;
+}
+
+function updateBreadcrumb(filePath) {
+  const bar = document.getElementById('breadcrumb');
+  if (!bar) return;
+
+  // — Untitled / new file —
+  if (!filePath) {
+    bar.innerHTML =
+      `${BC_ICON.__default__}<span class="bc-segment bc-file" style="color:#858585;font-style:italic">untitled</span>`;
+    return;
+  }
+
+  // Normalise separators
+  const norm    = filePath.replace(/\\/g, '/');
+  const normRoot = (rootFolderPath || '').replace(/\\/g, '/');
+
+  // Build segments: prefer relative path inside open folder
+  let allParts = norm.split('/').filter(Boolean);
+
+  if (normRoot && norm.startsWith(normRoot)) {
+    // Start from the root folder name itself
+    const rootParts = normRoot.split('/').filter(Boolean);
+    allParts = allParts.slice(rootParts.length - 1); // keep root folder name
+  } else {
+    // File outside root — show last 3 parts
+    allParts = allParts.slice(-3);
+  }
+
+  // Clamp to avoid overflow: keep first + last, collapse middle
+  let segments;
+  if (allParts.length <= 4) {
+    segments = allParts.map((name, i) => ({ name, isFile: i === allParts.length - 1 }));
+  } else {
+    segments = [
+      { name: allParts[0],                      isFile: false },
+      { name: '…',                               isFile: false, isEllipsis: true },
+      { name: allParts[allParts.length - 2],     isFile: false },
+      { name: allParts[allParts.length - 1],     isFile: true  },
+    ];
+  }
+
+  bar.innerHTML = segments.map((seg, i) => {
+    const sep   = i > 0 ? `<span class="bc-sep">›</span>` : '';
+    const icon  = seg.isEllipsis ? '' :
+                  seg.isFile ? getBcFileIcon(seg.name) : BC_ICON.__folder__;
+    const cls   = `bc-segment ${seg.isFile ? 'bc-file' : 'bc-dir'}${seg.isEllipsis ? ' bc-ellipsis' : ''}`;
+    return `${sep}<span class="${cls}" title="${seg.name}">${icon}${seg.name}</span>`;
+  }).join('');
+}
+
+// =====================================================================
 // SIDEBAR TOOLBAR — inject vào DOM
 // =====================================================================
 function buildSidebarToolbar() {
@@ -242,11 +325,13 @@ window.electronAPI.onNewFile(() => {
   currentFilePath = null;
   setEditorLanguage('cpp');
   document.title = 'New File - RCE App';
+  updateBreadcrumb(null);
 });
 
 window.electronAPI.onFileSaved((path) => {
   currentFilePath = path;
   document.title = path;
+  updateBreadcrumb(path);
 });
 
 window.electronAPI.onOpenFile((data) => {
@@ -255,6 +340,7 @@ window.electronAPI.onOpenFile((data) => {
   currentFilePath = data.filePath;
   document.title = data.filePath;
   setEditorLanguage(detectLanguage(data.filePath.split(/[\\/]/).pop()));
+  updateBreadcrumb(data.filePath);
 });
 
 // =====================================================================
