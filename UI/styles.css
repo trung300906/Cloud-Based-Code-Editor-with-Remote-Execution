@@ -298,12 +298,74 @@ body {
   width: 100%;
 }
 
-/* Phần editor bên trái */
+/* Editor area — horizontal pane layout */
 .main-editor {
   flex-grow: 1;
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   min-width: 0;
+  min-height: 0;
+}
+
+/* Single editor pane (tab-bar → breadcrumb → editor, stacked vertically) */
+.editor-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  border-right: 1px solid #1a1a1a;
+}
+.editor-pane:last-of-type { border-right: none; }
+.editor-pane.focused .tab-bar { background-color: #252526; }
+
+/* Resize handle between panes */
+.pane-resize-handle {
+  width: 4px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  background-color: transparent;
+  z-index: 10;
+  transition: background-color 0.12s;
+}
+.pane-resize-handle:hover,
+.pane-resize-handle.active {
+  background-color: #0078d4;
+}
+
+.pane-editor-container {
+  flex-grow: 1;
+  width: 100%;
+  min-height: 0;
+}
+
+/* Tab drag state */
+.tab.dragging { opacity: 0.4; }
+
+/* Drop overlay covering the editor area */
+.drop-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  z-index: 9000;
+  pointer-events: all;
+}
+.main-editor { position: relative; }
+
+/* Drop zone (left/right halves or per-pane) */
+.drop-zone {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.12s;
+  border: 2px dashed transparent;
+  margin: 6px;
+  border-radius: 8px;
+}
+.drop-zone.drop-hover {
+  background-color: rgba(0, 120, 212, 0.12);
+  border-color: #0078d4;
 }
 
 /* Resize handle giữa editor và sidebar */
@@ -336,11 +398,7 @@ body {
 /* =====================================================================
    EDITOR CONTAINER
    ===================================================================== */
-#editor-container {
-  flex-grow: 1;
-  width: 100%;
-  min-height: 0;
-}
+/* (editor container styles now in .pane-editor-container above) */
 
 /* =====================================================================
    FILE TREE — VS CODE STYLE
@@ -533,6 +591,15 @@ body.light-mode .resize-handle.active {
   background-color: #0060c0;
 }
 
+body.light-mode .drop-zone.drop-hover {
+  background-color: rgba(0, 96, 192, 0.1);
+  border-color: #0060c0;
+}
+body.light-mode .editor-pane { border-right-color: #d0d0d0; }
+body.light-mode .editor-pane.focused .tab-bar { background-color: #ececec; }
+body.light-mode .pane-resize-handle:hover,
+body.light-mode .pane-resize-handle.active { background-color: #0060c0; }
+
 body.light-mode .sidebar {
   background-color: #f3f3f3;
   border-left: 1px solid #ddd;
@@ -660,7 +727,7 @@ body.light-mode .tree-inline-input {
 /* =====================================================================
    TAB BAR — VS Code style
    ===================================================================== */
-#tab-bar {
+.tab-bar {
   display: flex;
   flex-direction: row;
   align-items: stretch;
@@ -673,7 +740,7 @@ body.light-mode .tree-inline-input {
   scrollbar-width: none;
   border-bottom: 1px solid #1a1a1a;
 }
-#tab-bar::-webkit-scrollbar { display: none; }
+.tab-bar::-webkit-scrollbar { display: none; }
 
 .tab {
   display: flex;
@@ -768,7 +835,7 @@ body.light-mode .tree-inline-input {
 }
 
 /* Tab bar — Light mode */
-body.light-mode #tab-bar          { background-color: #ececec; border-bottom-color: #d0d0d0; }
+body.light-mode .tab-bar          { background-color: #ececec; border-bottom-color: #d0d0d0; }
 body.light-mode .tab              { background-color: #e0e0e0; border-right-color: #ccc; }
 body.light-mode .tab:hover        { background-color: #d8d8d8; }
 body.light-mode .tab.active       { background-color: #f3f3f3; border-bottom-color: #f3f3f3; }
