@@ -504,6 +504,56 @@ function initKeyboardShortcuts() {
 }
 
 // =====================================================================
+// SIDEBAR RESIZE HANDLE
+// =====================================================================
+const LS_SIDEBAR_W = 'rce_sidebar_width';
+
+function initResizeHandle() {
+  const handle    = document.getElementById('resize-handle');
+  const sidebar   = document.querySelector('.sidebar');
+  const container = document.querySelector('.container');
+  if (!handle || !sidebar || !container) return;
+
+  const saved = parseInt(localStorage.getItem(LS_SIDEBAR_W), 10);
+  if (saved && saved >= 120) sidebar.style.width = saved + 'px';
+
+  let dragging = false, startX, startW;
+
+  handle.addEventListener('mousedown', (e) => {
+    dragging = true;
+    startX   = e.clientX;
+    startW   = sidebar.offsetWidth;
+    handle.classList.add('active');
+    document.body.style.cursor     = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    const newW = Math.min(
+      Math.max(120, startW + (startX - e.clientX)),
+      container.offsetWidth * 0.6
+    );
+    sidebar.style.width = newW + 'px';
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false;
+    handle.classList.remove('active');
+    document.body.style.cursor     = '';
+    document.body.style.userSelect = '';
+    localStorage.setItem(LS_SIDEBAR_W, sidebar.offsetWidth);
+  });
+
+  handle.addEventListener('dblclick', () => {
+    sidebar.style.width = '250px';
+    localStorage.setItem(LS_SIDEBAR_W, 250);
+  });
+}
+
+// =====================================================================
 // SIDEBAR TOOLBAR — inject vào DOM
 // =====================================================================
 function buildSidebarToolbar() {
@@ -615,6 +665,7 @@ window.addEventListener('DOMContentLoaded', () => {
   buildSidebarToolbar();
   initCustomMenubar();
   initKeyboardShortcuts();
+  initResizeHandle();
 
   const lastFolder = localStorage.getItem(LS_FOLDER);
   if (lastFolder) window.electronAPI.requestOpenFolder(lastFolder);
