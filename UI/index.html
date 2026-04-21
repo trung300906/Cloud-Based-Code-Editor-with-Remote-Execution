@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' https://cdnjs.cloudflare.com; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src 'self' data: https://cdnjs.cloudflare.com;">
+    <link href="./styles.css" rel="stylesheet">
+    <title>Diddy Skibidi</title>
+  </head>
+  <body>
+    <!-- Custom Menu Bar (thay thế native Electron menu) -->
+    <div class="custom-menubar" id="custom-menubar">
+      <div class="menubar-menus">
+        <div class="menu-item" data-menu="file">
+          <span class="menu-label">File</span>
+          <div class="menu-dropdown">
+            <div class="menu-entry" data-action="new-file"><span class="me-text">New</span><span class="me-shortcut">Ctrl+N</span></div>
+            <div class="menu-entry" data-action="open-file"><span class="me-text">Open File…</span><span class="me-shortcut">Ctrl+O</span></div>
+            <div class="menu-entry" data-action="open-folder"><span class="me-text">Open Folder…</span><span class="me-shortcut"></span></div>
+            <div class="menu-entry" data-action="save"><span class="me-text">Save</span><span class="me-shortcut">Ctrl+S</span></div>
+            <div class="menu-sep"></div>
+            <div class="menu-entry" data-action="quit"><span class="me-text">Exit</span><span class="me-shortcut">Ctrl+Q</span></div>
+          </div>
+        </div>
+        <div class="menu-item" data-menu="edit">
+          <span class="menu-label">Edit</span>
+          <div class="menu-dropdown">
+            <div class="menu-entry" data-action="undo"><span class="me-text">Undo</span><span class="me-shortcut">Ctrl+Z</span></div>
+            <div class="menu-entry" data-action="redo"><span class="me-text">Redo</span><span class="me-shortcut">Ctrl+Y</span></div>
+            <div class="menu-sep"></div>
+            <div class="menu-entry" data-action="cut"><span class="me-text">Cut</span><span class="me-shortcut">Ctrl+X</span></div>
+            <div class="menu-entry" data-action="copy"><span class="me-text">Copy</span><span class="me-shortcut">Ctrl+C</span></div>
+            <div class="menu-entry" data-action="paste"><span class="me-text">Paste</span><span class="me-shortcut">Ctrl+V</span></div>
+            <div class="menu-sep"></div>
+            <div class="menu-entry" data-action="select-all"><span class="me-text">Select All</span><span class="me-shortcut">Ctrl+A</span></div>
+          </div>
+        </div>
+        <div class="menu-item" data-menu="view">
+          <span class="menu-label">View</span>
+          <div class="menu-dropdown">
+            <div class="menu-entry" data-action="toggle-fullscreen"><span class="me-text">Toggle Fullscreen</span><span class="me-shortcut">F11</span></div>
+            <div class="menu-sep"></div>
+            <div class="menu-entry" data-action="zoom-in"><span class="me-text">Zoom In</span><span class="me-shortcut">Ctrl+=</span></div>
+            <div class="menu-entry" data-action="zoom-out"><span class="me-text">Zoom Out</span><span class="me-shortcut">Ctrl+-</span></div>
+            <div class="menu-entry" data-action="reset-zoom"><span class="me-text">Reset Zoom</span><span class="me-shortcut">Ctrl+0</span></div>
+            <div class="menu-sep"></div>
+            <div class="menu-entry" data-action="toggle-devtools"><span class="me-text">Developer Tools</span><span class="me-shortcut">Ctrl+Shift+I</span></div>
+          </div>
+        </div>
+        <div class="menu-item" data-menu="window">
+          <span class="menu-label">Window</span>
+          <div class="menu-dropdown">
+            <div class="menu-entry" data-action="minimize"><span class="me-text">Minimize</span><span class="me-shortcut"></span></div>
+            <div class="menu-entry" data-action="reload"><span class="me-text">Reload</span><span class="me-shortcut">Ctrl+Shift+R</span></div>
+            <div class="menu-entry" data-action="close-window"><span class="me-text">Close Window</span><span class="me-shortcut"></span></div>
+          </div>
+        </div>
+      </div>
+      <div class="menubar-controls">
+        <button id="theme-toggle-btn">🌙 Dark Mode: ON</button>
+        <select id="lang-select">
+          <option value="cpp">C++</option>
+        </select>
+        <button id="submit-btn">🟢 Submit Code</button>
+      </div>
+    </div>
+
+    <div class="container">
+      <div class="main-editor">
+        <div id="tab-bar"></div>
+        <div id="breadcrumb" class="breadcrumb-bar">
+          <span class="bc-segment bc-file">untitled</span>
+        </div>
+        <div id="editor-container"></div>
+      </div>
+
+      <div class="resize-handle" id="resize-handle"></div>
+      <div class="sidebar">
+        <h3>File Explorer</h3>
+        <ul id="file-list">
+          <li>...</li>
+        </ul>
+      </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+    <script src="./renderer.js"></script>
+  </body>
+</html>

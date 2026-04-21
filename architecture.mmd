@@ -1,0 +1,193 @@
+---
+config:
+  layout: elk
+---
+graph TD
+    classDef client fill:#1e3a5f,stroke:#4a9eff,color:#e8f4ff
+    classDef gateway fill:#3d1f00,stroke:#ff8c00,color:#ffe4b3
+    classDef collab fill:#0d3320,stroke:#00c853,color:#b9f6ca
+    classDef database fill:#1a1a2e,stroke:#7c4dff,color:#e8d5ff
+    classDef master fill:#2d0a3e,stroke:#ce93d8,color:#f3e5f5
+    classDef slave fill:#1e1e2e,stroke:#9575cd,color:#e8d5ff
+    classDef pool fill:#003333,stroke:#00bcd4,color:#b2ebf2
+    classDef container fill:#004d40,stroke:#1de9b6,color:#e0f2f1
+    classDef reset fill:#1a0a00,stroke:#ff6d00,color:#ffe0b2
+    classDef health fill:#1b0000,stroke:#f44336,color:#ffcdd2
+    classDef error fill:#3e0000,stroke:#d32f2f,color:#ffcdd2
+    classDef warmboot fill:#0a1929,stroke:#29b6f6,color:#b3e5fc
+    classDef thread fill:#1a237e,stroke:#5c6bc0,color:#e8eaf6
+    classDef heartbeat fill:#1b2a1b,stroke:#66bb6a,color:#c8e6c9
+    classDef flow fill:#212121,stroke:#616161,color:#f5f5f5
+
+    %% ================= CLIENT A =================
+    subgraph CA [Client A - Electron App]
+        direction TB
+        UI_A["Monaco Editor\nChỉ hiển thị & nhận phím gõ\nKhông compile, không chạy gì cả"]:::client
+        SESSION_A[(Session Storage\nJWT / Room ID / File State)]:::client
+        SYNC_A["🔄 OT Client\nTính diff từng ký tự\nGửi thao tác - không gửi cả file"]:::client
+        CURSOR_A["👁 Presence Client\nVị trí con trỏ của A\nThấy cursor B đang ở đâu"]:::client
+        PROTO_A["📦 Protocol Builder\nCustom Packet\n[4B LEN][1B TYPE][PAYLOAD]\nTYPE: AUTH=0x01 EDIT=0x02\nRUN=0x03 CURSOR=0x04 CHAT=0x05"]:::client
+        CRYPTO_A["🔐 Crypto Client\nAES-256-GCM mã hóa PAYLOAD\nHMAC-SHA256 tự ký JWT\nKhông dùng lib jsonwebtoken"]:::client
+        SOCK_A["🔌 TCP Socket Client\nnet.Socket - kết nối persistent\nKhông dùng HTTP / fetch / axios"]:::client
+
+        UI_A -- "Gõ ký tự → tạo diff" --> SYNC_A
+        UI_A -- "Di chuyển cursor" --> CURSOR_A
+        SESSION_A -- "Lấy Token & Room ID" --> PROTO_A
+        SYNC_A -- "Đóng gói EDIT packet" --> PROTO_A
+        CURSOR_A -- "Đóng gói CURSOR packet" --> PROTO_A
+        PROTO_A --> CRYPTO_A --> SOCK_A
+    end
+
+    %% ================= CLIENT B =================
+    subgraph CB [Client B - Electron App]
+        direction TB
+        UI_B["Monaco Editor"]:::client
+        SYNC_B["🔄 OT Client\nNhận diff từ server\nÁp dụng OT - merge conflict"]:::client
+        CURSOR_B["👁 Presence Client\nThấy cursor A real-time\nHighlight vùng A đang chọn"]:::client
+        SOCK_B["🔌 TCP Socket Client\nnet.Socket - persistent"]:::client
+
+        SOCK_B --> SYNC_B --> UI_B
+        SOCK_B --> CURSOR_B --> UI_B
+    end
+
+    SOCK_A -- "Raw TCP persistent\nKhông phải HTTP Request" --> GATEWAY
+    SOCK_B -- "Raw TCP persistent" --> GATEWAY
+
+    %% ================= CUSTOM TCP GATEWAY =================
+    subgraph MIDDLEWARE [⭐ Custom TCP Gateway - Tự code bằng Node.js net module]
+        direction TB
+        GATEWAY["TCP Server - net.createServer\nLắng nghe port 8080\nQuản lý N kết nối đồng thời\nI/O multiplexing không block event loop"]:::gateway
+        FRAME["Frame Parser\nĐọc raw TCP stream\nTách packet theo LEN\nBuffer nếu chưa đủ 1 frame"]:::gateway
+        AUTH{"Auth & Decrypt\nGiải mã AES-256-GCM\nVerify HMAC-SHA256 JWT\nTự implement - không dùng lib"}:::gateway
+        RATE["Rate Limiter\nToken Bucket - tự implement\nTheo từng kết nối TCP riêng biệt"]:::gateway
+        ROUTER{"Packet Router\nRoute theo TYPE byte\nEDIT/CURSOR/CHAT → Collab\nRUN → Exec Cluster\nAUTH → Sign in / Sign up"}:::gateway
+
+        GATEWAY --> FRAME --> AUTH
+        AUTH -- "Hợp lệ" --> RATE --> ROUTER
+        AUTH -- "Sai token" --> DROP1((Đóng kết nối TCP\ngửi ERR packet)):::error
+        RATE -- "Quá giới hạn" --> DROP2((Gửi ERR 0x00\nRATE_LIMIT)):::error
+    end
+
+    %% ================= DATABASE =================
+    subgraph DATABASE [Lớp Database & Storage]
+        direction LR
+        SQL[(PostgreSQL\nUser / Project / File\nLịch sử chỉnh sửa)]:::database
+        REDIS[(Redis\nRoom State / Session Cache\nPool State / Job Queue)]:::database
+        S3[(S3 / MinIO\nSnapshot file code\nTest Cases)]:::database
+    end
+
+    %% ================= COLLAB SERVER =================
+    subgraph COLLAB [Collab Server - Đồng bộ code real-time]
+        direction TB
+        ROOM["Room Manager\nMỗi file mở = 1 Room\nMỗi Room chạy 1 worker_thread riêng"]:::collab
+        OT_ENGINE["⭐ OT Engine - Tự implement\nOperational Transformation\nGiải conflict khi A và B\ncùng sửa 1 dòng 1 lúc\nMerge thao tác → broadcast diff\n→ App Logic + Socket Logic chính 5đ"]:::collab
+        PRESENCE["Presence Manager\nBroadcast cursor position\nBroadcast typing state\nAi đang ở dòng nào"]:::collab
+        BROADCAST["Broadcaster\nGửi packet đã merge\ntới tất cả client trong Room\nngoại trừ người gửi gốc"]:::collab
+
+        ROOM --> OT_ENGINE --> BROADCAST
+        ROOM --> PRESENCE --> BROADCAST
+    end
+
+    %% ================= EXEC CLUSTER =================
+    subgraph BACKEND [Execution Server Cluster]
+
+        subgraph S1 [Server Node 1 - Master]
+            direction TB
+            TCP_S1["TCP Worker Server\nLắng nghe RUN packet từ Gateway\nKhông dùng Express - không dùng HTTP"]:::master
+            PROTO_S1["Protocol Handler\nParse TYPE → điều phối\nRUN → Pool Manager\nPING → Trả PONG ngay"]:::master
+            QUEUE["Job Queue - REDIS\nBuffer job khi toàn bộ pool BUSY\nFIFO - timeout sau 30s"]:::master
+
+            subgraph WARM_BOOT [🥶 Warm Pool - Khởi tạo 1 lần duy nhất khi server start]
+                direction LR
+                BOOT_CMD["docker run -d\n--read-only\n--tmpfs /workspace:rw,size=32m\n--memory=100m\n--cpus=0.5\n--network=none\n--user=sandbox_user\nimage:latest\n→ Không spawn lại mỗi request\n→ Chạy 1 lần - sống mãi"]:::warmboot
+            end
+
+            subgraph POOL [🏊 Global Container Pool - Dùng chung - Không gắn với Room]
+                direction TB
+                POOL_MGR["Pool Manager\nDuy trì sẵn MinPool=2 MaxPool=10 container\nBất kỳ user nào cũng bốc được\nKhông gắn chết với Room hay User"]:::pool
+                DISPATCHER["Job Dispatcher\nNhận job → tìm container IDLE\nGán job → đánh dấu BUSY\nKhông có IDLE → đẩy vào Queue chờ"]:::pool
+
+                subgraph CONTAINERS [Containers - Luôn sống - Chỉ reset nội dung]
+                    direction LR
+                    CTR1["Container 1\nOS: read-only ✓\n/workspace: tmpfs RAM ✓\nTrạng thái: IDLE\nVirgined - sẵn sàng"]:::container
+                    CTR2["Container 2\nOS: read-only ✓\n/workspace: tmpfs RAM ✓\nTrạng thái: BUSY\nĐang chạy job User X"]:::container
+                    CTR3["Container 3\nOS: read-only ✓\n/workspace: tmpfs RAM ✓\nTrạng thái: IDLE\nVirgined - sẵn sàng"]:::container
+                    CTRN["Container N\nScale theo MaxPool\nvà RAM server"]:::container
+                end
+
+                RESET["⚡ Virgin Reset - Chạy sau mỗi job\ndocker exec container\npkill -9 -u sandbox_user\n→ Kill mọi process ngầm user cũ\n→ Trả lại CPU và RAM ngay lập tức\nrm -rf /workspace/*\n→ Xóa code cũ trên RAM Disk\n→ Hoàn tất trong dưới 50ms\nContainer về Virgin State\nKhông restart OS bên trong"]:::reset
+
+                HEALTH["🏥 Health Monitor\nPing TCP mỗi container mỗi 5s\nKiểm tra process còn sống không\nPhát hiện DEAD / treo / OOM killed\nKill container lỗi ngay lập tức\nSpawn replacement vào pool\nPool không bao giờ thiếu hụt"]:::health
+
+                POOL_MGR --> DISPATCHER
+                POOL_MGR --> HEALTH
+                DISPATCHER -- "Chọn container IDLE\nGán job - đánh dấu BUSY" --> CTR1
+                DISPATCHER -. "Đang bận - bỏ qua" .-> CTR2
+                DISPATCHER -- "Chọn container IDLE" --> CTR3
+                CTR2 -- "Job xong\nChạy Virgin Reset" --> RESET
+                RESET -- "Đánh dấu IDLE\nTrả về pool" --> CTR1
+                RESET -- "Đánh dấu IDLE\nTrả về pool" --> CTR3
+                HEALTH -. "Ping 5s" .-> CTR1
+                HEALTH -. "Ping 5s" .-> CTR2
+                HEALTH -. "Ping 5s" .-> CTR3
+                HEALTH -- "Container DEAD\nKill + Spawn mới thay thế" --> CTRN
+            end
+
+            EXEC_FLOW["📋 Luồng mỗi RUN request\n① Dispatcher chọn container IDLE trong pool\n② Push code vào /workspace qua docker exec stdin\n③ Chạy: docker exec ctr python /workspace/main.py\n④ Stream stdout/stderr về từng dòng real-time\n⑤ Chạy xong → Virgin Reset dưới 50ms\n⑥ Container về IDLE - trả về Global Pool\nKhông kill container - Không tạo container mới"]:::flow
+
+            HEARTBEAT_SVR["📡 TCP Heartbeat Server :4000\nSlave tự kết nối khi khởi động\nNhận CPU/RAM report mỗi 1 giây\nForward job sang slave rảnh hơn\nWeighted Round-Robin theo load thực tế"]:::heartbeat
+
+            THREAD_POOL["🧵 worker_threads\nMỗi container đang BUSY\n= 1 thread theo dõi riêng\nStream stdout về Gateway\nKhông block lẫn nhau"]:::thread
+
+            TCP_S1 --> PROTO_S1 --> QUEUE --> DISPATCHER
+            WARM_BOOT -- "Server start\nPre-warm pool 1 lần" --> POOL_MGR
+            DISPATCHER --> THREAD_POOL
+            TCP_S1 <-->|"Đọc/Ghi kết quả"| SQL
+            S3 -- "Tải Test Cases về" --> DISPATCHER
+        end
+
+        subgraph S2 [Server Node 2 - Slave]
+            direction TB
+            TCP_S2["TCP Worker Server\nNhận job overflow từ Master"]:::slave
+            WARM_BOOT2["🥶 Warm Pool riêng\ndocker run -d --read-only\n--tmpfs /workspace ..."]:::warmboot
+            POOL_MGR2["🏊 Global Pool riêng\nMinPool=2 MaxPool=10\nHealth monitor riêng"]:::pool
+            RESET2["⚡ Virgin Reset\npkill + rm -rf /workspace/*"]:::reset
+            THREAD_POOL2["🧵 worker_threads"]:::thread
+            HEARTBEAT2["📡 TCP Heartbeat Client\nTự kết nối vào S1:4000\nGửi CPU/RAM load mỗi 1 giây\nNhận job forward từ Master"]:::heartbeat
+            WARM_BOOT2 --> POOL_MGR2
+            TCP_S2 --> POOL_MGR2 --> RESET2 --> THREAD_POOL2
+        end
+
+        subgraph SN [Server Node N - Slave]
+            direction TB
+            TCP_SN["TCP Worker Server"]:::slave
+            POOL_MGRN["🏊 Global Pool riêng"]:::pool
+            THREAD_POOLN["🧵 worker_threads"]:::thread
+            HEARTBEATN["📡 TCP Heartbeat Client\nTự kết nối vào S1:4000\nGửi CPU/RAM load mỗi 1 giây"]:::heartbeat
+            TCP_SN --> POOL_MGRN --> THREAD_POOLN
+        end
+
+        HEARTBEAT_SVR <-. "TCP :4000\nHeartbeat mỗi 1s\nJob Forward khi Master bận\nLoad-aware dispatching" .-> HEARTBEAT2
+        HEARTBEAT_SVR <-. "TCP :4000\nHeartbeat mỗi 1s\nJob Forward" .-> HEARTBEATN
+    end
+
+    %% ================= ROUTING =================
+    ROUTER -- "EDIT / CURSOR / CHAT" --> ROOM
+    ROUTER -- "AUTH" --> SQL
+    ROUTER -- "RUN" --> TCP_S1
+    ROUTER -. "RUN - S1 pool đầy" .-> TCP_S2
+    ROUTER -. "RUN - S1 S2 pool đầy" .-> TCP_SN
+
+    OT_ENGINE <-->|"Lưu lịch sử thay đổi"| SQL
+    OT_ENGINE <-->|"Room state cache"| REDIS
+    POOL_MGR <-->|"Pool state\nJob queue"| REDIS
+
+    %% ================= KẾT QUẢ VỀ =================
+    CTR2 -. "stdout/stderr từng dòng\nStream ngay khi có output\nKhông đợi chạy xong" .-> THREAD_POOL
+    THREAD_POOL == "Đóng gói RESULT packet\n[LEN][TYPE=0x06][PAYLOAD]\nStream real-time từng dòng" ==> GATEWAY
+    BROADCAST == "Diff đã merge\nBroadcast tới Room" ==> GATEWAY
+
+    GATEWAY == "Server PUSH qua TCP persistent\nKhông cần client hỏi lại" ==> SOCK_A
+    GATEWAY == "Server PUSH" ==> SOCK_B
+
+    SOCK_A -. "Parse RESULT packet\nCập nhật terminal real-time" .-> UI_A
