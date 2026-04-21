@@ -61,7 +61,8 @@ graph TD
         AUTH{"Auth & Decrypt\nGiải mã AES-256-GCM\nVerify HMAC-SHA256 JWT\nTự implement - không dùng lib"}:::gateway
         RATE["Rate Limiter\nToken Bucket - tự implement\nTheo từng kết nối TCP riêng biệt"]:::gateway
         ROUTER{"Packet Router\nRoute theo TYPE byte\nEDIT/CURSOR/CHAT → Collab\nRUN → Exec Cluster\nAUTH → Sign in / Sign up"}:::gateway
-
+        HEARTBEAT_SVR["📡 TCP Heartbeat Server :4000\nSlave tự kết nối khi khởi động\nNhận CPU/RAM report mỗi 1 giây\nForward job sang slave rảnh hơn\nWeighted Round-Robin theo load thực tế"]:::heartbeat
+        HEARTBEAT_SVR --> ROUTER
         GATEWAY --> FRAME --> AUTH
         AUTH -- "Hợp lệ" --> RATE --> ROUTER
         AUTH -- "Sai token" --> DROP1((Đóng kết nối TCP\ngửi ERR packet)):::error
@@ -73,7 +74,9 @@ graph TD
         direction LR
         SQL[(PostgreSQL\nUser / Project / File\nLịch sử chỉnh sửa)]:::database
         REDIS[(Redis\nRoom State / Session Cache\nPool State / Job Queue)]:::database
-        S3[(S3 / MinIO\nSnapshot file code\nTest Cases)]:::database
+        S3[(S3 / MinIO\nSnapshot file code\nTest Cases)]:::database 
+
+        REDIS -- "GỬI INFO CỦA GLOBAL POOL" --> ROUTER
     end
 
     %% ================= COLLAB SERVER =================
@@ -90,12 +93,10 @@ graph TD
 
     %% ================= EXEC CLUSTER =================
     subgraph BACKEND [Execution Server Cluster]
-
-        subgraph S1 [Server Node 1 - Master]
+        subgraph S1 [Server Node 1 ]
             direction TB
-            TCP_S1["TCP Worker Server\nLắng nghe RUN packet từ Gateway\nKhông dùng Express - không dùng HTTP"]:::master
-            PROTO_S1["Protocol Handler\nParse TYPE → điều phối\nRUN → Pool Manager\nPING → Trả PONG ngay"]:::master
-            QUEUE["Job Queue - REDIS\nBuffer job khi toàn bộ pool BUSY\nFIFO - timeout sau 30s"]:::master
+            TCP_S1["TCP Worker Server\nLắng nghe RUN packet từ Gateway\nKhông dùng Express - không dùng HTTP"]
+            PROTO_S1["Protocol Handler\nParse TYPE → điều phối\nRUN → Pool Manager\nPING → Trả PONG ngay"]
 
             subgraph WARM_BOOT [🥶 Warm Pool - Khởi tạo 1 lần duy nhất khi server start]
                 direction LR
@@ -118,7 +119,7 @@ graph TD
                 RESET["⚡ Virgin Reset - Chạy sau mỗi job\ndocker exec container\npkill -9 -u sandbox_user\n→ Kill mọi process ngầm user cũ\n→ Trả lại CPU và RAM ngay lập tức\nrm -rf /workspace/*\n→ Xóa code cũ trên RAM Disk\n→ Hoàn tất trong dưới 50ms\nContainer về Virgin State\nKhông restart OS bên trong"]:::reset
 
                 HEALTH["🏥 Health Monitor\nPing TCP mỗi container mỗi 5s\nKiểm tra process còn sống không\nPhát hiện DEAD / treo / OOM killed\nKill container lỗi ngay lập tức\nSpawn replacement vào pool\nPool không bao giờ thiếu hụt"]:::health
-
+                HEARTBEAT1["📡 TCP Heartbeat Client\nTự kết nối vào S1:4000\nGửi CPU/RAM load mỗi 1 giây\nNhận job forward từ Master"]:::heartbeat
                 POOL_MGR --> DISPATCHER
                 POOL_MGR --> HEALTH
                 DISPATCHER -- "Chọn container IDLE\nGán job - đánh dấu BUSY" --> CTR1
@@ -135,20 +136,20 @@ graph TD
 
             EXEC_FLOW["📋 Luồng mỗi RUN request\n① Dispatcher chọn container IDLE trong pool\n② Push code vào /workspace qua docker exec stdin\n③ Chạy: docker exec ctr python /workspace/main.py\n④ Stream stdout/stderr về từng dòng real-time\n⑤ Chạy xong → Virgin Reset dưới 50ms\n⑥ Container về IDLE - trả về Global Pool\nKhông kill container - Không tạo container mới"]:::flow
 
-            HEARTBEAT_SVR["📡 TCP Heartbeat Server :4000\nSlave tự kết nối khi khởi động\nNhận CPU/RAM report mỗi 1 giây\nForward job sang slave rảnh hơn\nWeighted Round-Robin theo load thực tế"]:::heartbeat
+            
 
             THREAD_POOL["🧵 worker_threads\nMỗi container đang BUSY\n= 1 thread theo dõi riêng\nStream stdout về Gateway\nKhông block lẫn nhau"]:::thread
 
-            TCP_S1 --> PROTO_S1 --> QUEUE --> DISPATCHER
+            TCP_S1 --> PROTO_S1 --> DISPATCHER
             WARM_BOOT -- "Server start\nPre-warm pool 1 lần" --> POOL_MGR
             DISPATCHER --> THREAD_POOL
             TCP_S1 <-->|"Đọc/Ghi kết quả"| SQL
             S3 -- "Tải Test Cases về" --> DISPATCHER
         end
 
-        subgraph S2 [Server Node 2 - Slave]
+        subgraph S2 [Server Node 2 ]
             direction TB
-            TCP_S2["TCP Worker Server\nNhận job overflow từ Master"]:::slave
+            TCP_S2["TCP Worker Server\nNhận job overflow từ Master"]
             WARM_BOOT2["🥶 Warm Pool riêng\ndocker run -d --read-only\n--tmpfs /workspace ..."]:::warmboot
             POOL_MGR2["🏊 Global Pool riêng\nMinPool=2 MaxPool=10\nHealth monitor riêng"]:::pool
             RESET2["⚡ Virgin Reset\npkill + rm -rf /workspace/*"]:::reset
@@ -158,16 +159,17 @@ graph TD
             TCP_S2 --> POOL_MGR2 --> RESET2 --> THREAD_POOL2
         end
 
-        subgraph SN [Server Node N - Slave]
+        subgraph SN [Server Node N ]
             direction TB
-            TCP_SN["TCP Worker Server"]:::slave
-            POOL_MGRN["🏊 Global Pool riêng"]:::pool
+            TCP_SN["TCP Worker Server"]
+            POOL_MGRN["🏊 Global Pool riêng"]:::pool    
             THREAD_POOLN["🧵 worker_threads"]:::thread
             HEARTBEATN["📡 TCP Heartbeat Client\nTự kết nối vào S1:4000\nGửi CPU/RAM load mỗi 1 giây"]:::heartbeat
             TCP_SN --> POOL_MGRN --> THREAD_POOLN
         end
 
-        HEARTBEAT_SVR <-. "TCP :4000\nHeartbeat mỗi 1s\nJob Forward khi Master bận\nLoad-aware dispatching" .-> HEARTBEAT2
+        HEARTBEAT_SVR <-. "TCP :4000\nHeartbeat mỗi 1s\nJob Forward" .-> HEARTBEAT2
+        HEARTBEAT_SVR <-. "TCP :4000\nHeartbeat mỗi 1s\nJob Forward" .-> HEARTBEAT1
         HEARTBEAT_SVR <-. "TCP :4000\nHeartbeat mỗi 1s\nJob Forward" .-> HEARTBEATN
     end
 
