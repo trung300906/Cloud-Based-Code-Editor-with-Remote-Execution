@@ -16,22 +16,23 @@ Nhánh này chứa giao diện người dùng (UI) cơ bản và tính năng Fil
 ## 🛠 Hướng dẫn cài đặt và chạy thử (sử dụng Git Bash)
 
 **Bước 1:** Clone project và chuyển sang nhánh `UI/UX`
-\\\bash
+``` bash
 git clone https://github.com/trung300906/Cloud-Based-Code-Editor-with-Remote-Execution
 cd <tên-thư-mục-project>
 git checkout UI/UX
-\\\
+```
+
 sau đó vào folder UI
 **Bước 2:** Cài đặt các thư viện cần thiết (Chỉ cần chạy 1 lần)
-\\\ bash
+``` bash
 npm install
-\\\
+```
 *(Lưu ý: Lệnh này sẽ đọc file package.json và tự động tạo ra thư mục node_modules cho bạn)*
 
 **Bước 3:** Khởi chạy ứng dụng
-\\\bash
+```bash
 npm start
-\\\
+```
 
 ## Ghi chú cho Dev
 - Menu mở thư mục nằm ở: **File > Open Folder** (Trên thanh công cụ của cửa sổ ứng dụng).
