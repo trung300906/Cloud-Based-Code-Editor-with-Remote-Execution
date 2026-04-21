@@ -1,19 +1,14 @@
-// Modules to control application life and create native browser window
-// ---> 1. MODIFIED: Gọi thêm Menu, dialog (hộp thoại), ipcMain (bưu điện) và fs (thư viện đọc/ghi file) <---
 const { app, BrowserWindow, Menu, dialog, ipcMain } = require('electron')
 const path = require('node:path')
-const fs = require('fs') 
-// ----------------------------------------------------------------------------------------------------
+const fs   = require('fs')
 
-// ---> 2. ADDED: Lôi cái mainWindow ra tuốt bên ngoài để các hàm bên dưới xài chung được <---
 let mainWindow;
-// ------------------------------------------------------------------------------------------
 
 // =====================================================================
-// buildTree: đặt ở MODULE SCOPE để tái dụng (restore state + open folder)
-// SKIP_DIRS: bỏ qua các thư mục rác tốn bộ nhớ khi quét
+// buildTree — module scope (tái dụng cho Open Folder + request-open-folder)
+// SKIP_DIRS: bỏ qua thư mục rác/ẩn tránh treo app
 // =====================================================================
-const SKIP_DIRS = new Set(['node_modules', '.git', '.svn', '__pycache__', '.cache', 'dist', '.next']);
+const SKIP_DIRS = new Set([]);
 
 function buildTree(dirPath) {
   const result = [];
@@ -24,48 +19,34 @@ function buildTree(dirPath) {
     console.error('Lỗi đọc thư mục:', dirPath, err.message);
     return result;
   }
-
   for (const file of entries) {
     if (SKIP_DIRS.has(file) || file.startsWith('.')) continue;
     const fullPath = path.join(dirPath, file);
     try {
       const stat = fs.statSync(fullPath);
       if (stat.isDirectory()) {
-        result.push({
-          name: file,
-          path: fullPath,
-          isDirectory: true,
-          children: buildTree(fullPath), // đệ quy
-        });
+        result.push({ name: file, path: fullPath, isDirectory: true, children: buildTree(fullPath) });
       } else {
         result.push({ name: file, path: fullPath, isDirectory: false });
       }
-    } catch (e) { /* bỏ qua file không đọc được (permission, symlink loop...) */ }
+    } catch (e) { /* bỏ qua file không đọc được */ }
   }
   return result;
 }
 
-function createWindow () {
-  // Create the browser window.
-  // ---> 3. REMOVED: Bỏ chữ 'const' đi, chỉ để lại 'mainWindow = ...' thôi <---
+// =====================================================================
+// createWindow
+// =====================================================================
+function createWindow() {
   mainWindow = new BrowserWindow({
-  // --------------------------------------------------------------------------
-    width: 800,
-    height: 600,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js')
-    },
-
-    // Gọi ảnh lên làm icon
-    icon: path.join(__dirname, 'bleh.jpg'), 
+    width: 900,
+    height: 650,
+    webPreferences: { preload: path.join(__dirname, 'preload.js') },
+    icon: path.join(__dirname, 'bleh.jpg'),
   })
-
-  // load the index.html of the app.
   mainWindow.loadFile('index.html')
-  //mainWindow.webContents.openDevTools(); // devtools
+  // mainWindow.webContents.openDevTools();
 
-  // ===============================================================================
-  // ---> 4. ADDED: Vẽ ra cái Menu mới đè lên cái Menu mặc định <---
   const template = [
     {
       label: 'File',
@@ -73,115 +54,112 @@ function createWindow () {
         {
           label: 'New',
           accelerator: 'CmdOrCtrl+N',
-          click: () => { mainWindow.webContents.send('file-new') }
+          click: () => mainWindow.webContents.send('file-new'),
         },
-      
         {
           label: 'Open File...',
           accelerator: 'CmdOrCtrl+O',
           click: async () => {
-            const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
-              properties: ['openFile'] // Chỉ mở file
-            })
+            const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, { properties: ['openFile'] });
             if (!canceled) {
-              const content = fs.readFileSync(filePaths[0], 'utf-8')
-              mainWindow.webContents.send('file-open', { content, filePath: filePaths[0] })
+              const content = fs.readFileSync(filePaths[0], 'utf-8');
+              mainWindow.webContents.send('file-open', { content, filePath: filePaths[0] });
             }
-          }
+          },
         },
-        
-        // [ADDED]: Nút mở Folder để ném vào cây thư mục
         {
           label: 'Open Folder...',
           click: async () => {
-            const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
-              properties: ['openDirectory']
-            });
-
+            const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, { properties: ['openDirectory'] });
             if (!canceled && filePaths.length > 0) {
               const rootFolderPath = filePaths[0];
               const treeData = buildTree(rootFolderPath);
               mainWindow.webContents.send('folder-opened', { items: treeData, folderPath: rootFolderPath });
             }
-          }
+          },
         },
-
         {
           label: 'Save',
           accelerator: 'CmdOrCtrl+S',
-          click: () => { mainWindow.webContents.send('file-save-request') }
+          click: () => mainWindow.webContents.send('file-save-request'),
         },
-
-        { type: 'separator' }, 
-
+        { type: 'separator' },
         { role: 'quit', label: 'Exit' },
-      ]
+      ],
     },
-    // [MODIFIED]: Tuyệt chiêu gọi "combo" menu mặc định của Electron chỉ với 3 dòng!
-        { role: 'editMenu' },   // Tự động xổ ra nguyên bộ Edit (Undo, Redo, Copy, Paste...)
-        { role: 'viewMenu' },   // Tự động xổ ra bộ View (Zoom in, Zoom out, Reload...)
-        { role: 'windowMenu' }  // Tự động xổ ra bộ Window (Minimize, Close...)
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' },
   ]
-
   const menu = Menu.buildFromTemplate(template)
   Menu.setApplicationMenu(menu)
-  // ---> KẾT THÚC CỤC ĐỘ THÊM MENU <---
-  // ===============================================================================
 }
 
-// This method will be called when Electron has finished initialization
+// =====================================================================
+// App lifecycle
+// =====================================================================
 app.whenReady().then(() => {
   createWindow()
-
-  app.on('activate', function () {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
-  })
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
 })
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
 
-app.on('window-all-closed', function () {
-  if (process.platform !== 'darwin') app.quit()
-})
+// =====================================================================
+// IPC Handlers
+// =====================================================================
 
-// ==================================================================================
-// ---> 5. ADDED: "Bộ não" xử lý việc ghi file xuống ổ cứng thật <---
+// Lưu file
 ipcMain.on('save-file', (event, { filePath, content }) => {
   if (filePath) {
-    fs.writeFileSync(filePath, content) 
+    fs.writeFileSync(filePath, content);
   } else {
     dialog.showSaveDialog(mainWindow).then(result => {
       if (!result.canceled) {
-        fs.writeFileSync(result.filePath, content)
-        mainWindow.webContents.send('file-saved', result.filePath)
+        fs.writeFileSync(result.filePath, content);
+        mainWindow.webContents.send('file-saved', result.filePath);
       }
-    })
+    });
   }
-})
-// ---> KẾT THÚC CỤC LƯU FILE <---
-// ==================================================================================
+});
 
-// Lắng nghe yêu cầu đọc file từ Sidebar
+// Đọc file từ sidebar
 ipcMain.on('request-read-file', (event, filePath) => {
   try {
     const content = fs.readFileSync(filePath, 'utf-8');
     mainWindow.webContents.send('file-open', { filePath, content });
   } catch (err) {
-    console.error("Lỗi không đọc được file:", err);
+    console.error('Lỗi không đọc được file:', err);
   }
 });
 
-// ==================================================================================
-// [ADDED]: Renderer yêu cầu reload lại folder cũ khi khởi động (state persistence)
-// ==================================================================================
+// Restore folder khi khởi động lại (state persistence)
 ipcMain.on('request-open-folder', (event, folderPath) => {
   try {
-    // Kiểm tra folder vẫn còn tồn tại không
-    if (!fs.existsSync(folderPath)) {
-      event.reply('folder-open-error', `Folder không còn tồn tại: ${folderPath}`);
-      return;
-    }
+    if (!fs.existsSync(folderPath)) return;
     const treeData = buildTree(folderPath);
     mainWindow.webContents.send('folder-opened', { items: treeData, folderPath });
   } catch (err) {
     console.error('Lỗi khi restore folder:', err);
+  }
+});
+
+// [NEW] Tạo file/folder mới từ sidebar toolbar
+ipcMain.handle('create-entry', async (event, { type, dirPath, name }) => {
+  // Sanitize: không cho tạo tên chứa path separator
+  const safeName = path.basename(name.trim());
+  if (!safeName) return { success: false, error: 'Tên không hợp lệ.' };
+
+  const fullPath = path.join(dirPath, safeName);
+  if (fs.existsSync(fullPath)) return { success: false, error: `"${safeName}" đã tồn tại.` };
+
+  try {
+    if (type === 'file') {
+      fs.writeFileSync(fullPath, '');
+    } else {
+      fs.mkdirSync(fullPath, { recursive: true });
+    }
+    return { success: true, path: fullPath };
+  } catch (err) {
+    return { success: false, error: err.message };
   }
 });
