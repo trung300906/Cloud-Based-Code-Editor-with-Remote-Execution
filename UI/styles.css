@@ -1,277 +1,382 @@
 /* =====================================================================
    RESET & BASE
    ===================================================================== */
-   body, html {
-    margin: 0;
-    padding: 0;
-    height: 100%;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    font-size: 13px;
-    overflow: hidden;
-    background-color: #1e1e1e;
-    color: #cccccc;
-  }
-  
-  /* =====================================================================
-     LAYOUT
-     ===================================================================== */
-  .container {
-    display: flex;
-    height: 100vh;
-    width: 100vw;
-  }
-  
-  /* Sidebar bên TRÁI (File Explorer) */
-  .sidebar {
-    width: 250px;
-    min-width: 150px;
-    background-color: #252526;
-    border-right: 1px solid #333;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-  }
-  
-  /* Phần editor bên phải */
-  .main-editor {
-    flex-grow: 1;
-    display: flex;
-    flex-direction: column;
-    min-width: 0; /* quan trọng cho flexbox */
-  }
-  
-  /* =====================================================================
-     TOOLBAR
-     ===================================================================== */
-  .editor-toolbar {
-    background-color: #2d2d2d;
-    padding: 4px 10px;
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    border-bottom: 1px solid #1a1a1a;
-    gap: 6px;
-    flex-shrink: 0;
-  }
-  
-  #submit-btn {
-    background-color: #0e639c;
-    color: white;
-    border: none;
-    padding: 4px 12px;
-    font-size: 12px;
-    font-weight: 600;
-    border-radius: 3px;
-    cursor: pointer;
-    transition: background-color 0.15s;
-  }
-  #submit-btn:hover { background-color: #1177bb; }
-  
-  #theme-toggle-btn {
-    background-color: transparent;
-    color: inherit;
-    border: 1px solid #555;
-    padding: 3px 10px;
-    font-size: 12px;
-    border-radius: 3px;
-    cursor: pointer;
-    transition: background-color 0.15s;
-  }
-  #theme-toggle-btn:hover { background-color: rgba(128,128,128,0.2); }
-  
-  #lang-select {
-    background-color: #3c3c3c;
-    color: #ddd;
-    border: 1px solid #555;
-    padding: 3px 6px;
-    font-size: 12px;
-    border-radius: 3px;
-    cursor: pointer;
-  }
-  
-  /* =====================================================================
-     EDITOR CONTAINER
-     ===================================================================== */
-  #editor-container {
-    flex-grow: 1;
-    width: 100%;
-    min-height: 0; /* quan trọng cho flexbox */
-  }
-  
-  /* =====================================================================
-     FILE TREE — VS CODE STYLE
-     ===================================================================== */
-  #file-list {
-    flex-grow: 1;
-    overflow-y: auto;
-    overflow-x: hidden;
-    padding: 4px 0;
-    margin: 0;
-    /* Scrollbar mỏng */
-    scrollbar-width: thin;
-    scrollbar-color: #424242 transparent;
-  }
-  
-  #file-list::-webkit-scrollbar { width: 6px; }
-  #file-list::-webkit-scrollbar-thumb {
-    background-color: #424242;
-    border-radius: 3px;
-  }
-  #file-list::-webkit-scrollbar-thumb:hover { background-color: #555; }
-  
-  /* Header tên thư mục gốc (ALL CAPS như VS Code) */
-  .tree-root-header {
-    padding: 6px 12px 4px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.08em;
-    color: #bbb;
-    user-select: none;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  
-  /* Root ul */
-  .tree-root {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-  
-  /* ---- TREE ITEM ---- */
-  .tree-item {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-  
-  /* ---- LABEL (hàng click được) ---- */
-  .tree-label {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding: 1px 8px 1px 0;
-    cursor: pointer;
-    border-radius: 0;
-    user-select: none;
-    white-space: nowrap;
-    overflow: hidden;
-    min-height: 22px;
-    position: relative;
-    color: #cccccc;
-  }
-  .tree-label:hover {
-    background-color: #2a2d2e;
-    color: #fff;
-  }
-  
-  /* File đang được chọn (active) */
-  .tree-label.tree-selected {
-    background-color: #094771 !important;
-    color: #fff;
-  }
-  
-  /* ---- ARROW (▶ / ▼) ---- */
-  .tree-arrow {
-    flex-shrink: 0;
-    width: 16px;
-    text-align: center;
-    font-size: 10px;
-    color: #888;
-    transition: transform 0.1s;
-  }
-  .tree-arrow-spacer {
-    /* file không có arrow, giữ spacer để icon thẳng hàng */
-    visibility: hidden;
-  }
-  
-  /* ---- ICON ---- */
-  .tree-icon {
-    flex-shrink: 0;
-    font-size: 14px;
-    line-height: 1;
-  }
-  
-  /* ---- NAME ---- */
-  .tree-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    font-size: 13px;
-  }
-  
-  /* ---- CHILDREN LIST + INDENT GUIDE ---- */
-  .tree-children {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: none; /* collapsed by default */
-  
-    /* Indent guide line — đây là cái đường thẳng đứng kiểu VS Code */
-    border-left: 1px solid #404040;
-    margin-left: 16px; /* căn theo tâm icon folder */
-  }
-  
-  /* Hover lên folder thì guide line sáng lên */
-  .tree-item.open > .tree-children:hover,
-  .tree-item.open:hover > .tree-children {
-    border-left-color: #6c6c6c;
-  }
-  
-  /* Khi open thì hiện children */
-  .tree-item.open > .tree-children {
-    display: block;
-  }
-  
-  /* =====================================================================
-     LIGHT MODE OVERRIDES
-     ===================================================================== */
-  body.light-mode {
-    background-color: #f3f3f3;
-    color: #333;
-  }
-  
-  body.light-mode .sidebar {
-    background-color: #f3f3f3;
-    border-right: 1px solid #ddd;
-  }
-  
-  body.light-mode .editor-toolbar {
-    background-color: #e8e8e8;
-    border-bottom: 1px solid #ccc;
-  }
-  
-  body.light-mode .tree-root-header {
-    color: #555;
-  }
-  
-  body.light-mode .tree-label {
-    color: #333;
-  }
-  body.light-mode .tree-label:hover {
-    background-color: #e4e6f1;
-    color: #000;
-  }
-  body.light-mode .tree-label.tree-selected {
-    background-color: #0060c0 !important;
-    color: #fff;
-  }
-  body.light-mode .tree-children {
-    border-left-color: #d0d0d0;
-  }
-  body.light-mode .tree-item.open:hover > .tree-children {
-    border-left-color: #aaa;
-  }
-  body.light-mode .tree-arrow { color: #666; }
-  
-  body.light-mode #lang-select {
-    background-color: #fff;
-    color: #333;
-    border: 1px solid #ccc;
-  }
-  body.light-mode #file-list::-webkit-scrollbar-thumb {
-    background-color: #ccc;
-  }
+html {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  overflow: hidden;
+  background-color: #1e1e1e;
+  color: #cccccc;
+  display: flex;
+  flex-direction: column;
+}
+
+/* =====================================================================
+   CUSTOM MENU BAR
+   ===================================================================== */
+.custom-menubar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 30px;
+  min-height: 30px;
+  background-color: #2d2d2d;
+  border-bottom: 1px solid #1a1a1a;
+  flex-shrink: 0;
+  user-select: none;
+  padding: 0 4px;
+  z-index: 9999;
+}
+
+.menubar-menus {
+  display: flex;
+  align-items: center;
+  height: 100%;
+}
+
+/* ---- Menu Item (File, Edit, View, Window) ---- */
+.menu-item {
+  position: relative;
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.menu-label {
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  height: 100%;
+  font-size: 13px;
+  color: #cccccc;
+  cursor: pointer;
+}
+.menu-label:hover,
+.menu-item.open .menu-label {
+  background-color: rgba(255,255,255,0.1);
+  color: #ffffff;
+}
+
+/* ---- Dropdown Panel ---- */
+.menu-dropdown {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  min-width: 240px;
+  background-color: #252526;
+  border: 1px solid #454545;
+  border-radius: 5px;
+  padding: 4px 0;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+  z-index: 10000;
+}
+.menu-item.open .menu-dropdown {
+  display: block;
+}
+
+/* ---- Menu Entry (row inside dropdown) ---- */
+.menu-entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px 0 12px;
+  height: 28px;
+  font-size: 13px;
+  color: #cccccc;
+  cursor: pointer;
+  border-radius: 3px;
+  margin: 0 4px;
+}
+.menu-entry:hover {
+  background-color: #094771;
+  color: #ffffff;
+}
+
+.me-text { flex: 1; }
+.me-shortcut {
+  color: #888;
+  font-size: 12px;
+  margin-left: 28px;
+  white-space: nowrap;
+}
+.menu-entry:hover .me-shortcut { color: rgba(255,255,255,0.6); }
+
+.menu-sep {
+  height: 1px;
+  background-color: #454545;
+  margin: 4px 8px;
+}
+
+/* ---- Right-side controls (dark mode, lang, submit) ---- */
+.menubar-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 2px;
+}
+
+#submit-btn {
+  background-color: #0e639c;
+  color: white;
+  border: none;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  line-height: 1.4;
+}
+#submit-btn:hover { background-color: #1177bb; }
+
+#theme-toggle-btn {
+  background-color: transparent;
+  color: inherit;
+  border: 1px solid #555;
+  padding: 2px 8px;
+  font-size: 12px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background-color 0.15s;
+  line-height: 1.4;
+}
+#theme-toggle-btn:hover { background-color: rgba(128,128,128,0.2); }
+
+#lang-select {
+  background-color: #3c3c3c;
+  color: #ddd;
+  border: 1px solid #555;
+  padding: 2px 6px;
+  font-size: 12px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+/* =====================================================================
+   LAYOUT
+   ===================================================================== */
+.container {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+/* Sidebar bên TRÁI (File Explorer) */
+.sidebar {
+  width: 250px;
+  min-width: 150px;
+  background-color: #252526;
+  border-right: 1px solid #333;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Phần editor bên phải */
+.main-editor {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* =====================================================================
+   EDITOR CONTAINER
+   ===================================================================== */
+#editor-container {
+  flex-grow: 1;
+  width: 100%;
+  min-height: 0;
+}
+
+/* =====================================================================
+   FILE TREE — VS CODE STYLE
+   ===================================================================== */
+#file-list {
+  flex-grow: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0;
+  margin: 0;
+  scrollbar-width: thin;
+  scrollbar-color: #424242 transparent;
+}
+
+#file-list::-webkit-scrollbar { width: 6px; }
+#file-list::-webkit-scrollbar-thumb {
+  background-color: #424242;
+  border-radius: 3px;
+}
+#file-list::-webkit-scrollbar-thumb:hover { background-color: #555; }
+
+.tree-root-header {
+  padding: 6px 12px 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #bbb;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-root {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tree-item {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.tree-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px 1px 0;
+  cursor: pointer;
+  border-radius: 0;
+  user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  min-height: 22px;
+  position: relative;
+  color: #cccccc;
+}
+.tree-label:hover {
+  background-color: #2a2d2e;
+  color: #fff;
+}
+
+.tree-label.tree-selected {
+  background-color: #094771 !important;
+  color: #fff;
+}
+
+.tree-arrow {
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+  font-size: 10px;
+  color: #888;
+  transition: transform 0.1s;
+}
+.tree-arrow-spacer {
+  visibility: hidden;
+}
+
+.tree-icon {
+  flex-shrink: 0;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.tree-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+
+.tree-children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: none;
+  border-left: 1px solid #404040;
+  margin-left: 16px;
+}
+
+.tree-item.open > .tree-children:hover,
+.tree-item.open:hover > .tree-children {
+  border-left-color: #6c6c6c;
+}
+
+.tree-item.open > .tree-children {
+  display: block;
+}
+
+/* =====================================================================
+   LIGHT MODE OVERRIDES
+   ===================================================================== */
+body.light-mode {
+  background-color: #f3f3f3;
+  color: #333;
+}
+
+body.light-mode .custom-menubar {
+  background-color: #e8e8e8;
+  border-bottom-color: #ccc;
+}
+body.light-mode .menu-label {
+  color: #333;
+}
+body.light-mode .menu-label:hover,
+body.light-mode .menu-item.open .menu-label {
+  background-color: rgba(0,0,0,0.08);
+  color: #000;
+}
+body.light-mode .menu-dropdown {
+  background-color: #f3f3f3;
+  border-color: #c8c8c8;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.16);
+}
+body.light-mode .menu-entry { color: #333; }
+body.light-mode .menu-entry:hover {
+  background-color: #0060c0;
+  color: #fff;
+}
+body.light-mode .menu-entry:hover .me-shortcut { color: rgba(255,255,255,0.6); }
+body.light-mode .me-shortcut { color: #888; }
+body.light-mode .menu-sep { background-color: #ddd; }
+
+body.light-mode #theme-toggle-btn {
+  border-color: #bbb;
+  color: #333;
+}
+body.light-mode #theme-toggle-btn:hover { background-color: rgba(0,0,0,0.06); }
+
+body.light-mode #lang-select {
+  background-color: #fff;
+  color: #333;
+  border: 1px solid #ccc;
+}
+
+body.light-mode .sidebar {
+  background-color: #f3f3f3;
+  border-right: 1px solid #ddd;
+}
+
+body.light-mode .tree-root-header { color: #555; }
+
+body.light-mode .tree-label { color: #333; }
+body.light-mode .tree-label:hover {
+  background-color: #e4e6f1;
+  color: #000;
+}
+body.light-mode .tree-label.tree-selected {
+  background-color: #0060c0 !important;
+  color: #fff;
+}
+body.light-mode .tree-children { border-left-color: #d0d0d0; }
+body.light-mode .tree-item.open:hover > .tree-children { border-left-color: #aaa; }
+body.light-mode .tree-arrow { color: #666; }
+
+body.light-mode #file-list::-webkit-scrollbar-thumb { background-color: #ccc; }
+
 /* =====================================================================
    SIDEBAR TOOLBAR (New File / New Folder / Refresh / Collapse All)
    ===================================================================== */
@@ -283,7 +388,6 @@
   height: 35px;
   flex-shrink: 0;
   border-bottom: 1px solid #333;
-  /* Buttons ẩn mặc định, hiện khi hover sidebar */
 }
 
 .sidebar-toolbar-title {
@@ -301,12 +405,11 @@
 .sidebar-toolbar-actions {
   display: flex;
   gap: 1px;
-  opacity: 0;                /* ẩn khi không hover */
+  opacity: 0;
   transition: opacity 0.12s;
   flex-shrink: 0;
 }
 
-/* Hiện buttons khi hover cả sidebar */
 .sidebar:hover .sidebar-toolbar-actions {
   opacity: 1;
 }
@@ -342,7 +445,6 @@
   flex-shrink: 0;
 }
 
-/* ---- Inline name input khi tạo file/folder mới ---- */
 .tree-inline-input {
   background: #3c3c3c;
   border: 1px solid #0078d4;
@@ -357,21 +459,15 @@
   box-shadow: 0 0 0 1px #0078d4;
 }
 
-/* Remove tree-root-header vì đã gộp vào toolbar title */
+/* Hide vì đã gộp vào sidebar toolbar title */
 .tree-root-header {
   display: none;
 }
 
-/* Light mode overrides cho toolbar */
-body.light-mode .sidebar-toolbar {
-  border-bottom: 1px solid #ddd;
-}
-body.light-mode .sidebar-toolbar-title {
-  color: #555;
-}
-body.light-mode .stb-btn {
-  color: #555;
-}
+/* Light mode overrides cho sidebar toolbar */
+body.light-mode .sidebar-toolbar { border-bottom: 1px solid #ddd; }
+body.light-mode .sidebar-toolbar-title { color: #555; }
+body.light-mode .stb-btn { color: #555; }
 body.light-mode .stb-btn:hover {
   background-color: rgba(0,0,0,0.08);
   color: #000;
@@ -396,12 +492,11 @@ body.light-mode .tree-inline-input {
   flex-shrink: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  scrollbar-width: none;        /* Firefox */
+  scrollbar-width: none;
   border-bottom: 1px solid #1a1a1a;
 }
-#tab-bar::-webkit-scrollbar { display: none; }  /* Chrome/Edge */
+#tab-bar::-webkit-scrollbar { display: none; }
 
-/* ---- Single tab ---- */
 .tab {
   display: flex;
   align-items: center;
@@ -421,7 +516,6 @@ body.light-mode .tree-inline-input {
   box-sizing: border-box;
 }
 
-/* Top border accent on active tab */
 .tab::before {
   content: '';
   position: absolute;
@@ -435,7 +529,6 @@ body.light-mode .tree-inline-input {
 .tab:hover  { background-color: #303030; }
 .tab.active { background-color: #1e1e1e; border-bottom-color: #1e1e1e; }
 
-/* ---- Tab icon ---- */
 .tab-file-icon {
   flex-shrink: 0;
   display: flex;
@@ -443,7 +536,6 @@ body.light-mode .tree-inline-input {
   line-height: 1;
 }
 
-/* ---- Tab name ---- */
 .tab-name {
   font-size: 13px;
   color: #9d9d9d;
@@ -455,23 +547,20 @@ body.light-mode .tree-inline-input {
 }
 .tab.active .tab-name { color: #cccccc; }
 
-/* ---- Modified dot ● ---- */
 .tab-modified-dot {
   flex-shrink: 0;
   font-size: 11px;
   width: 16px;
   text-align: center;
   color: #cccccc;
-  display: none;        /* hidden by default */
+  display: none;
   align-items: center;
   justify-content: center;
   line-height: 1;
 }
-/* Show dot only on modified tabs (not hovering) */
 .tab.modified .tab-modified-dot      { display: flex; }
 .tab.modified:hover .tab-modified-dot { display: none; }
 
-/* ---- Close button × ---- */
 .tab-close {
   flex-shrink: 0;
   background: none;
@@ -487,13 +576,11 @@ body.light-mode .tree-inline-input {
   cursor: pointer;
   padding: 0;
   line-height: 1;
-  opacity: 0;           /* hidden until needed */
+  opacity: 0;
   transition: opacity 0.1s, background-color 0.1s, color 0.1s;
 }
-/* Show × on hover or active (unmodified tabs) */
 .tab:hover .tab-close,
 .tab.active .tab-close       { opacity: 1; }
-/* On modified tabs: × shown only while hovering (replaces dot) */
 .tab.modified .tab-close     { opacity: 0; }
 .tab.modified:hover .tab-close { opacity: 1; }
 
@@ -502,7 +589,7 @@ body.light-mode .tree-inline-input {
   color: #fff;
 }
 
-/* ---- Light mode overrides ---- */
+/* Tab bar — Light mode */
 body.light-mode #tab-bar          { background-color: #ececec; border-bottom-color: #d0d0d0; }
 body.light-mode .tab              { background-color: #e0e0e0; border-right-color: #ccc; }
 body.light-mode .tab:hover        { background-color: #d8d8d8; }
@@ -514,7 +601,9 @@ body.light-mode .tab-modified-dot { color: #333; }
 body.light-mode .tab-close        { color: #555; }
 body.light-mode .tab-close:hover  { background-color: rgba(0,0,0,0.1); color: #000; }
 
-
+/* =====================================================================
+   BREADCRUMB BAR
+   ===================================================================== */
 .breadcrumb-bar {
   display: flex;
   align-items: center;
@@ -526,7 +615,6 @@ body.light-mode .tab-close:hover  { background-color: rgba(0,0,0,0.1); color: #0
   overflow: hidden;
   white-space: nowrap;
   gap: 0;
-  /* subtle top border to separate from toolbar */
   border-top: 1px solid #141414;
 }
 
@@ -552,7 +640,6 @@ body.light-mode .tab-close:hover  { background-color: rgba(0,0,0,0.1); color: #0
   background-color: rgba(255,255,255,0.06);
 }
 
-/* The last segment (filename) is brighter */
 .bc-segment.bc-file {
   color: #cccccc;
   font-weight: 400;
@@ -568,7 +655,6 @@ body.light-mode .tab-close:hover  { background-color: rgba(0,0,0,0.1); color: #0
   color: #666;
 }
 
-/* Separator › */
 .bc-sep {
   font-size: 13px;
   color: #555;
@@ -578,14 +664,13 @@ body.light-mode .tab-close:hover  { background-color: rgba(0,0,0,0.1); color: #0
   flex-shrink: 0;
 }
 
-/* Icon inside segment */
 .bc-icon {
   font-size: 12px;
   line-height: 1;
   flex-shrink: 0;
 }
 
-/* ---- Light mode ---- */
+/* Breadcrumb — Light mode */
 body.light-mode .breadcrumb-bar {
   background-color: #f3f3f3;
   border-bottom: 1px solid #ddd;
