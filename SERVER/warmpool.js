@@ -50,6 +50,7 @@ class WarmPoolBootstrapper {
     this.pool = new Map(); // id -> record
     this.idle = new Set(); // container ids
     this.busy = new Set(); // container ids
+    this._nameSeq = 0;
   }
 
   async bootstrap() {
@@ -310,6 +311,14 @@ class WarmPoolBootstrapper {
       return an.localeCompare(bn);
     });
 
+    for (const item of sorted) {
+      const rawName = String((item.Names && item.Names[0]) || "").replace(/^\//, "");
+      const seqMatch = rawName.match(/-(\d+)$/);
+      if (seqMatch) {
+        this._nameSeq = Math.max(this._nameSeq, Number(seqMatch[1]));
+      }
+    }
+
     const records = [];
     for (const item of sorted) {
       const ctr = this.docker.getContainer(item.Id);
@@ -355,49 +364,62 @@ class WarmPoolBootstrapper {
   }
 
   async _spawnOne(name) {
-    const container = await this.docker.createContainer({
-      Image: this.image,
-      name,
-      Cmd: this.keepAliveCmd,
-      User: this.user,
-      WorkingDir: "/workspace",
-      Labels: {
-        "zera.pool": "warm",
-        "zera.node": this.nodeId,
-      },
-      HostConfig: {
-        ReadonlyRootfs: true,
-        NetworkMode: "none",
-        Tmpfs: {
-          "/workspace":
-            "rw,size=" +
-            this.workspaceSize +
-            ",uid=" +
-            this.sandboxUid +
-            ",gid=" +
-            this.sandboxGid +
-            ",mode=700",
-          "/tmp": "rw,size=" + this.tmpSize + ",mode=1777",
-        },
-        Memory: this.memoryLimitBytes,
-        NanoCpus: this.nanoCpus,
-        PidsLimit: this.pidsLimit,
-        CapDrop: ["ALL"],
-        SecurityOpt: ["no-new-privileges:true"],
-      },
-    });
+    const MAX_CONFLICT_RETRIES = 3;
 
-    await container.start();
-    const info = await container.inspect();
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const container = await this.docker.createContainer({
+          Image: this.image,
+          name,
+          Cmd: this.keepAliveCmd,
+          User: this.user,
+          WorkingDir: "/workspace",
+          Labels: {
+            "zera.pool": "warm",
+            "zera.node": this.nodeId,
+          },
+          HostConfig: {
+            ReadonlyRootfs: true,
+            NetworkMode: "none",
+            Tmpfs: {
+              "/workspace":
+                "rw,size=" +
+                this.workspaceSize +
+                ",uid=" +
+                this.sandboxUid +
+                ",gid=" +
+                this.sandboxGid +
+                ",mode=700",
+              "/tmp": "rw,size=" + this.tmpSize + ",mode=1777",
+            },
+            Memory: this.memoryLimitBytes,
+            NanoCpus: this.nanoCpus,
+            PidsLimit: this.pidsLimit,
+            CapDrop: ["ALL"],
+            SecurityOpt: ["no-new-privileges:true"],
+          },
+        });
 
-    return {
-      id: info.Id,
-      name: info.Name.replace(/^\//, ""),
-      status: "IDLE",
-      createdAt: Date.now(),
-      lastUsedAt: null,
-      nodeId: this.nodeId,
-    };
+        await container.start();
+        const info = await container.inspect();
+
+        return {
+          id: info.Id,
+          name: info.Name.replace(/^\//, ""),
+          status: "IDLE",
+          createdAt: Date.now(),
+          lastUsedAt: null,
+          nodeId: this.nodeId,
+        };
+      } catch (err) {
+        if (err.statusCode === 409 && attempt < MAX_CONFLICT_RETRIES) {
+          console.warn(`[warm-pool] name conflict "${name}", retrying with new name…`);
+          name = this._nextContainerName();
+          continue;
+        }
+        throw err;
+      }
+    }
   }
 
   _trackAsIdle(rec) {
@@ -407,13 +429,7 @@ class WarmPoolBootstrapper {
   }
 
   _nextContainerName() {
-    let n = this.pool.size + 1;
-    for (;;) {
-      const candidate = `${this.namePrefix}-${this.nodeId}-${n}`;
-      const exists = [...this.pool.values()].some((r) => r.name === candidate);
-      if (!exists) return candidate;
-      n += 1;
-    }
+    return `${this.namePrefix}-${this.nodeId}-${++this._nameSeq}`;
   }
 }
 
