@@ -1,8 +1,8 @@
 // =====================================================================
 // FILE UTILS — buildTree (dùng chung bởi ipc-file và ipc-menu)
 // =====================================================================
-const fs   = require('fs');
-const path = require('node:path');
+const fs = require("fs");
+const path = require("node:path");
 
 // Thêm tên folder vào đây nếu muốn bỏ qua (vd: 'node_modules')
 const SKIP_DIRS = new Set([]);
@@ -12,27 +12,49 @@ const SKIP_DIRS = new Set([]);
  * @param {string} dirPath
  * @returns {Array<{name, path, isDirectory, children?}>}
  */
-function buildTree(dirPath) {
-  const result = [];
+function buildTree(dirPath, depth = 0) {
+  if (depth > 50) return []; // safety limit
+
   let entries;
   try {
-    entries = fs.readdirSync(dirPath);
+    entries = fs.readdirSync(dirPath, { withFileTypes: true });
   } catch (err) {
-    console.error('Lỗi đọc thư mục:', dirPath, err.message);
-    return result;
+    console.error("Lỗi đọc thư mục:", dirPath, err.message);
+    return [];
   }
-  for (const file of entries) {
-    if (SKIP_DIRS.has(file) || file.startsWith('.')) continue;
-    const fullPath = path.join(dirPath, file);
+
+  const result = [];
+
+  for (const entry of entries) {
+    const name = entry.name;
+
+    if (SKIP_DIRS.has(name) || name.startsWith(".")) continue;
+
+    const fullPath = path.join(dirPath, name);
+
     try {
-      const stat = fs.statSync(fullPath);
-      if (stat.isDirectory()) {
-        result.push({ name: file, path: fullPath, isDirectory: true, children: buildTree(fullPath) });
+      // 🚫 Skip symlinks completely
+      if (entry.isSymbolicLink()) continue;
+
+      if (entry.isDirectory()) {
+        result.push({
+          name,
+          path: fullPath,
+          isDirectory: true,
+          children: buildTree(fullPath, depth + 1),
+        });
       } else {
-        result.push({ name: file, path: fullPath, isDirectory: false });
+        result.push({
+          name,
+          path: fullPath,
+          isDirectory: false,
+        });
       }
-    } catch (_) { /* bỏ qua file không đọc được */ }
+    } catch (err) {
+      // ignore unreadable files
+    }
   }
+
   return result;
 }
 

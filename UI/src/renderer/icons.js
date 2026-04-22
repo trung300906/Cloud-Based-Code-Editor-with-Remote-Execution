@@ -29,20 +29,20 @@ export const SVG = {
 // ---- Breadcrumb mini SVG icons theo extension ----
 export const BC_ICON = {
   __folder__: `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M1 4.5A1 1 0 012 3.5h4l1.5 2H14A1 1 0 0115 6.5v7a1 1 0 01-1 1H2a1 1 0 01-1-1v-9z" fill="#dcb67a" opacity=".9"/></svg>`,
-  cpp   : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#9cdcfe" font-family="monospace">C+</text></svg>`,
-  c     : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#9cdcfe" font-family="monospace">C</text></svg>`,
-  h     : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#9cdcfe" font-family="monospace">H</text></svg>`,
-  py    : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#4ec9b0" font-family="monospace">Py</text></svg>`,
-  js    : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><rect width="16" height="16" rx="2" fill="#f0db4f" opacity=".15"/><text y="13" font-size="11" fill="#f0db4f" font-family="monospace">JS</text></svg>`,
-  ts    : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><rect width="16" height="16" rx="2" fill="#3178c6" opacity=".2"/><text y="13" font-size="11" fill="#3d9fe0" font-family="monospace">TS</text></svg>`,
-  json  : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="10" fill="#cbcb41" font-family="monospace">{}</text></svg>`,
-  md    : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="10" fill="#519aba" font-family="monospace">MD</text></svg>`,
-  html  : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="9"  fill="#e34c26" font-family="monospace">HTML</text></svg>`,
-  css   : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="9"  fill="#563d7c" font-family="monospace">CSS</text></svg>`,
-  rs    : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#dea584" font-family="monospace">Rs</text></svg>`,
-  go    : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#00acd7" font-family="monospace">Go</text></svg>`,
-  yaml  : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="9"  fill="#cbcb41" font-family="monospace">YML</text></svg>`,
-  mmd   : `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#a78bfa" font-family="monospace">⬡</text></svg>`,
+  cpp: `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#9cdcfe" font-family="monospace">C+</text></svg>`,
+  c: `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#9cdcfe" font-family="monospace">C</text></svg>`,
+  h: `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#9cdcfe" font-family="monospace">H</text></svg>`,
+  py: `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#4ec9b0" font-family="monospace">Py</text></svg>`,
+  js: `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><rect width="16" height="16" rx="2" fill="#f0db4f" opacity=".15"/><text y="13" font-size="11" fill="#f0db4f" font-family="monospace">JS</text></svg>`,
+  ts: `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><rect width="16" height="16" rx="2" fill="#3178c6" opacity=".2"/><text y="13" font-size="11" fill="#3d9fe0" font-family="monospace">TS</text></svg>`,
+  json: `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="10" fill="#cbcb41" font-family="monospace">{}</text></svg>`,
+  md: `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="10" fill="#519aba" font-family="monospace">MD</text></svg>`,
+  html: `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="9"  fill="#e34c26" font-family="monospace">HTML</text></svg>`,
+  css: `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="9"  fill="#563d7c" font-family="monospace">CSS</text></svg>`,
+  rs: `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#dea584" font-family="monospace">Rs</text></svg>`,
+  go: `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#00acd7" font-family="monospace">Go</text></svg>`,
+  yaml: `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="9"  fill="#cbcb41" font-family="monospace">YML</text></svg>`,
+  mmd: `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><text y="13" font-size="11" fill="#a78bfa" font-family="monospace">⬡</text></svg>`,
   __default__: `<svg class="bc-icon" width="14" height="14" viewBox="0 0 16 16"><path d="M4 1h6l4 4v10H4V1z" fill="none" stroke="#cccccc" stroke-width="1.2"/><polyline points="10,1 10,5 14,5" fill="none" stroke="#cccccc" stroke-width="1.2"/></svg>`,
 };
 
@@ -52,18 +52,42 @@ export const BC_ICON = {
  * @returns {string}
  */
 export function getFileIcon(filename) {
-  const ext = filename.split('.').pop().toLowerCase();
+  const ext = filename.split(".").pop().toLowerCase();
   const m = {
-    cpp:'⚙️',cc:'⚙️',cxx:'⚙️',c:'⚙️',h:'⚙️',hpp:'⚙️',
-    py:'🐍', js:'📜',ts:'📜',jsx:'📜',tsx:'📜',
-    html:'🌐',htm:'🌐',css:'🎨',scss:'🎨',
-    json:'📋',yaml:'📋',yml:'📋',toml:'📋',xml:'📋',
-    md:'📝',txt:'📝',mmd:'🔷',
-    rs:'🦀',go:'🔵',java:'☕',rb:'💎',
-    sh:'🖥️',bash:'🖥️',sql:'🗄️',
-    dockerfile:'🐳',makefile:'🔧',
+    cpp: "⚙️",
+    cc: "⚙️",
+    cxx: "⚙️",
+    c: "⚙️",
+    h: "⚙️",
+    hpp: "⚙️",
+    py: "🐍",
+    js: "📜",
+    ts: "📜",
+    jsx: "📜",
+    tsx: "📜",
+    html: "🌐",
+    htm: "🌐",
+    css: "🎨",
+    scss: "🎨",
+    json: "📋",
+    yaml: "📋",
+    yml: "📋",
+    toml: "📋",
+    xml: "📋",
+    md: "📝",
+    txt: "📝",
+    mmd: "🔷",
+    rs: "🦀",
+    go: "🔵",
+    java: "☕",
+    rb: "💎",
+    sh: "🖥️",
+    bash: "🖥️",
+    sql: "🗄️",
+    dockerfile: "🐳",
+    makefile: "🔧",
   };
-  return m[ext] || '📄';
+  return m[ext] || "📄";
 }
 
 /**
@@ -72,11 +96,22 @@ export function getFileIcon(filename) {
  * @returns {string} HTML string của SVG
  */
 export function getBcFileIcon(filename) {
-  const ext = filename.toLowerCase().split('.').pop();
+  const ext = filename.toLowerCase().split(".").pop();
   const aliases = {
-    cc:'cpp', cxx:'cpp', hpp:'cpp', hh:'cpp', hxx:'cpp',
-    mjs:'js', cjs:'js', jsx:'js', tsx:'ts',
-    yml:'yaml', jsonc:'json', htm:'html', scss:'css', less:'css',
+    cc: "cpp",
+    cxx: "cpp",
+    hpp: "cpp",
+    hh: "cpp",
+    hxx: "cpp",
+    mjs: "js",
+    cjs: "js",
+    jsx: "js",
+    tsx: "ts",
+    yml: "yaml",
+    jsonc: "json",
+    htm: "html",
+    scss: "css",
+    less: "css",
   };
   const key = aliases[ext] || ext;
   return BC_ICON[key] || BC_ICON.__default__;
