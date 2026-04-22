@@ -85,6 +85,19 @@ export function activateTabInPane(tabId, pane) {
   updateBreadcrumb(tab.filePath, pane);
   pane.tabBarEl.querySelectorAll('.tab').forEach(el =>
     el.classList.toggle('active', Number(el.dataset.tabId) === tabId));
+
+  // Sync sidebar file tree selection to match the active tab
+  if (tab.filePath) {
+    if (state.selectedFileEl) state.selectedFileEl.classList.remove('tree-selected');
+    const labels = document.querySelectorAll('.tree-file-label');
+    for (const lbl of labels) {
+      if (lbl.title === tab.filePath) {
+        lbl.classList.add('tree-selected');
+        state.selectedFileEl = lbl;
+        break;
+      }
+    }
+  }
 }
 
 // ---- Đóng tab ----
