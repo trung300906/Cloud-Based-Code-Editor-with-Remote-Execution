@@ -60,7 +60,7 @@
         <div class="quick-open-results" id="quick-open-results"></div>
       </div>
       <div class="menubar-controls">
-        <button id="theme-toggle-btn">🌙 Dark Mode: ON</button>
+        <button id="theme-toggle-btn">☀️ Light Mode: OFF</button>
         <select id="lang-select">
           <option value="cpp">C++</option>
         </select>
@@ -82,7 +82,13 @@
       </div>
     </div>
 
+    <!--
+      Monaco AMD loader phải được load trước renderer ES module.
+      Thẻ <script> thông thường chạy synchronous khi parse HTML,
+      còn <script type="module"> được defer → Monaco luôn sẵn sàng
+      khi renderer gọi require().
+    -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
-    <script src="./renderer.js"></script>
+    <script type="module" src="./src/renderer/index.js"></script>
   </body>
 </html>
