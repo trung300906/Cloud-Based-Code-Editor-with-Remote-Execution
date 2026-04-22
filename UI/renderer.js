@@ -110,22 +110,28 @@ let rootFolderPath  = null;
 let selectedFileEl  = null;
 
 // =====================================================================
-// PANE & TAB SYSTEM
+// PANE & TAB SYSTEM — Recursive split tree (horizontal + vertical)
 // =====================================================================
-const panes        = [];
-let focusedPaneIdx = 0;
-let paneIdCounter  = 0;
+const panes       = [];   // flat list of all leaf panes
+let focusedPaneId = null;
+let paneIdCounter = 0;
+let splitIdCounter = 0;
 
-const tabs         = new Map();
-let tabCounter     = 0;
-let monacoReady    = false;
-const pendingOpen  = [];
+const tabs        = new Map();
+let tabCounter    = 0;
+let monacoReady   = false;
+const pendingOpen = [];
 
-function getFocusedPane()    { return panes[focusedPaneIdx] || panes[0]; }
-function getPaneById(id)     { return panes.find(p => p.id === id); }
-function getPaneForTab(tid)  { return panes.find(p => p.tabIds.includes(tid)); }
+// Split tree: root node lives here after init
+let splitRoot = null;
 
-function createPane() {
+// ---- Helpers ----
+function getFocusedPane()   { return getPaneById(focusedPaneId) || panes[0]; }
+function getPaneById(id)    { return panes.find(p => p.id === id); }
+function getPaneForTab(tid) { return panes.find(p => p.tabIds.includes(tid)); }
+
+// ---- Create a leaf pane (no DOM insertion — caller handles placement) ----
+function createLeafPane() {
   const id = ++paneIdCounter;
   const el = document.createElement('div');
   el.className = 'editor-pane';
@@ -133,26 +139,15 @@ function createPane() {
 
   const tabBarEl = document.createElement('div');
   tabBarEl.className = 'tab-bar';
-
   const breadcrumbEl = document.createElement('div');
   breadcrumbEl.className = 'breadcrumb-bar';
   breadcrumbEl.innerHTML = '<span class="bc-segment bc-file">untitled</span>';
-
   const containerEl = document.createElement('div');
   containerEl.className = 'pane-editor-container';
 
   el.appendChild(tabBarEl);
   el.appendChild(breadcrumbEl);
   el.appendChild(containerEl);
-
-  const mainEditor = document.getElementById('main-editor');
-  if (panes.length > 0) {
-    const handle = document.createElement('div');
-    handle.className = 'pane-resize-handle';
-    mainEditor.appendChild(handle);
-    initPaneResize(handle);
-  }
-  mainEditor.appendChild(el);
 
   const pane = { id, el, tabBarEl, breadcrumbEl, containerEl, editor: null, tabIds: [], activeTabId: null };
   panes.push(pane);
@@ -167,17 +162,105 @@ function createPane() {
       minimap: { enabled: true }, scrollBeyondLastLine: false,
     });
   }
-
-  focusPane(id);
   return pane;
 }
 
-function removePane(paneId) {
-  const idx = panes.findIndex(p => p.id === paneId);
-  if (idx === -1 || panes.length <= 1) return;
+// ---- Init the first pane (single root leaf) ----
+function initRootPane() {
+  const pane = createLeafPane();
+  const main = document.getElementById('main-editor');
+  main.innerHTML = '';
+  main.appendChild(pane.el);
+  splitRoot = { type: 'leaf', paneId: pane.id, el: pane.el };
+  focusPane(pane.id);
+  return pane;
+}
 
-  const pane   = panes[idx];
-  const target = panes[idx === 0 ? 1 : 0];
+// ---- Find a node in the split tree ----
+function findNode(node, paneId) {
+  if (!node) return null;
+  if (node.type === 'leaf') return node.paneId === paneId ? node : null;
+  for (const child of node.children) {
+    const found = findNode(child, paneId);
+    if (found) return found;
+  }
+  return null;
+}
+function findParent(node, paneId, parent) {
+  if (!node) return null;
+  if (node.type === 'leaf') return node.paneId === paneId ? parent : null;
+  for (const child of node.children) {
+    const found = findParent(child, paneId, node);
+    if (found) return found;
+  }
+  return null;
+}
+
+// ---- Split a pane in any direction ----
+// direction: 'horizontal' (left/right) or 'vertical' (top/bottom)
+// side: 'before' (left/top) or 'after' (right/bottom)
+function splitPane(paneId, direction, side) {
+  const pane = getPaneById(paneId);
+  if (!pane) return null;
+
+  const leaf = findNode(splitRoot, paneId);
+  if (!leaf) return null;
+  const parent = findParent(splitRoot, paneId, null);
+
+  const newPane = createLeafPane();
+  const newLeaf = { type: 'leaf', paneId: newPane.id, el: newPane.el };
+
+  const handle = document.createElement('div');
+  handle.className = direction === 'horizontal' ? 'split-handle split-handle-h' : 'split-handle split-handle-v';
+
+  const container = document.createElement('div');
+  container.className = `split-container split-${direction}`;
+  container.dataset.splitId = ++splitIdCounter;
+
+  const first  = side === 'before' ? newLeaf : leaf;
+  const second = side === 'before' ? leaf : newLeaf;
+
+  // Save position BEFORE moving elements (appendChild detaches from original parent)
+  const origParent = leaf.el.parentNode;
+  const origNext   = leaf.el.nextSibling;
+
+  // Build DOM (moves leaf.el into the container)
+  container.appendChild(first.el);
+  container.appendChild(handle);
+  container.appendChild(second.el);
+
+  // Insert container where leaf.el used to be
+  if (origParent) {
+    origParent.insertBefore(container, origNext);
+  }
+
+  const splitNode = {
+    type: 'split', direction, el: container,
+    children: [first, second],
+  };
+
+  // Replace in tree
+  if (leaf === splitRoot) {
+    splitRoot = splitNode;
+  } else if (parent) {
+    const idx = parent.children.indexOf(leaf);
+    if (idx !== -1) parent.children[idx] = splitNode;
+  }
+
+  initSplitHandleResize(handle, direction);
+  focusPane(newPane.id);
+  return newPane;
+}
+
+// ---- Remove a pane, collapse tree ----
+function removePane(paneId) {
+  if (panes.length <= 1) return;
+  const pane = getPaneById(paneId);
+  if (!pane) return;
+
+  // Find sibling to receive tabs
+  const allOther = panes.filter(p => p.id !== paneId);
+  const target = allOther[0];
 
   [...pane.tabIds].forEach(tid => {
     pane.tabIds = pane.tabIds.filter(x => x !== tid);
@@ -187,45 +270,85 @@ function removePane(paneId) {
   });
 
   if (pane.editor) pane.editor.dispose();
-  const prev = pane.el.previousElementSibling;
-  if (prev?.classList.contains('pane-resize-handle')) prev.remove();
-  else pane.el.nextElementSibling?.classList.contains('pane-resize-handle') && pane.el.nextElementSibling.remove();
 
-  pane.el.remove();
-  panes.splice(idx, 1);
-  // Reset flex on remaining pane
-  target.el.style.flex = '';
+  // Collapse tree: find parent split, replace it with the sibling
+  const parent = findParent(splitRoot, paneId, null);
+  if (parent && parent.type === 'split') {
+    const sibling = parent.children.find(c =>
+      !(c.type === 'leaf' && c.paneId === paneId)
+    );
+    if (sibling) {
+      // Reset flex so sibling fills the space
+      sibling.el.style.flex = '';
+      // Replace the split-container with the sibling in the DOM
+      if (parent.el.parentNode) {
+        parent.el.parentNode.replaceChild(sibling.el, parent.el);
+      }
+      // Update tree
+      if (parent === splitRoot) {
+        splitRoot = sibling;
+      } else {
+        replaceChildInTree(splitRoot, parent, sibling);
+      }
+    }
+  } else {
+    pane.el.remove();
+  }
+
+  const pidx = panes.findIndex(p => p.id === paneId);
+  if (pidx !== -1) panes.splice(pidx, 1);
+
   focusPane(target.id);
   if (target.tabIds.length > 0) activateTabInPane(target.activeTabId || target.tabIds[0], target);
 }
 
-function focusPane(paneId) {
-  const idx = panes.findIndex(p => p.id === paneId);
-  if (idx === -1) return;
-  focusedPaneIdx = idx;
-  panes.forEach(p => p.el.classList.toggle('focused', p.id === paneId));
+function replaceChildInTree(node, oldChild, newChild) {
+  if (!node || node.type !== 'split') return false;
+  const idx = node.children.indexOf(oldChild);
+  if (idx !== -1) { node.children[idx] = newChild; return true; }
+  for (const c of node.children) {
+    if (replaceChildInTree(c, oldChild, newChild)) return true;
+  }
+  return false;
+}
 
-  const pane = panes[idx];
-  const tab  = pane.activeTabId ? tabs.get(pane.activeTabId) : null;
+function findNodeByEl(node, el) {
+  if (!node) return null;
+  if (node.el === el) return node;
+  if (node.type === 'split') {
+    for (const c of node.children) {
+      const f = findNodeByEl(c, el);
+      if (f) return f;
+    }
+  }
+  return null;
+}
+
+// ---- Focus ----
+function focusPane(paneId) {
+  const pane = getPaneById(paneId);
+  if (!pane) return;
+  focusedPaneId = paneId;
+  panes.forEach(p => p.el.classList.toggle('focused', p.id === paneId));
+  const tab = pane.activeTabId ? tabs.get(pane.activeTabId) : null;
   currentFilePath = tab?.filePath || null;
   if (tab) {
     const lang = tab.filePath ? detectLanguage(tab.label) : 'cpp';
-    const sel  = document.getElementById('lang-select');
+    const sel = document.getElementById('lang-select');
     if (sel) sel.value = lang;
     document.title = tab.filePath || 'untitled';
   }
 }
 
-function splitEditor() {
-  if (panes.length >= 2) return;
+// ---- Split editor command (Ctrl+\) ----
+function splitEditor(direction) {
   const src = getFocusedPane();
   const tab = src.activeTabId ? tabs.get(src.activeTabId) : null;
-  const newPane = createPane();
-
+  const newPane = splitPane(src.id, direction || 'horizontal', 'after');
+  if (!newPane) return;
   if (tab) {
-    const id    = ++tabCounter;
-    const model = tab.model; // share same Monaco model
-    tabs.set(id, { id, filePath: tab.filePath, label: tab.label, model, isModified: tab.isModified });
+    const id = ++tabCounter;
+    tabs.set(id, { id, filePath: tab.filePath, label: tab.label, model: tab.model, isModified: tab.isModified });
     newPane.tabIds.push(id);
     appendTabElToPane(id, newPane);
     activateTabInPane(id, newPane);
@@ -235,7 +358,6 @@ function splitEditor() {
 }
 
 // ---- Tab operations ----
-
 function getTabByPath(fp) {
   for (const t of tabs.values()) if (t.filePath === fp) return t;
   return null;
@@ -243,25 +365,21 @@ function getTabByPath(fp) {
 
 function openOrActivateTab(filePath, content, paneId) {
   if (!monacoReady) { pendingOpen.push({ filePath, content }); return; }
-
   const existing = filePath ? getTabByPath(filePath) : null;
   if (existing) {
     const p = getPaneForTab(existing.id);
     if (p) { focusPane(p.id); activateTab(existing.id); }
     return;
   }
-
   const id    = ++tabCounter;
   const label = filePath ? filePath.split(/[\\/]/).pop() : `untitled-${id}`;
   const lang  = filePath ? detectLanguage(label) : 'cpp';
   const uri   = filePath ? monaco.Uri.file(filePath) : monaco.Uri.parse(`inmemory://model/${id}`);
   const model = monaco.editor.createModel(content || '', lang, uri);
-
   model.onDidChangeContent(() => {
     const t = tabs.get(id);
     if (t && !t.isModified) { t.isModified = true; refreshTabEl(id); }
   });
-
   tabs.set(id, { id, filePath, label, model, isModified: false });
   const target = paneId ? getPaneById(paneId) : getFocusedPane();
   if (!target) return;
@@ -280,19 +398,16 @@ function activateTab(tabId) {
 function activateTabInPane(tabId, pane) {
   const tab = tabs.get(tabId);
   if (!tab || !pane?.editor) return;
-
   pane.activeTabId = tabId;
   pane.editor.setModel(tab.model);
-
-  if (pane === getFocusedPane()) {
+  if (pane.id === focusedPaneId) {
     currentFilePath = tab.filePath;
     pane.editor.focus();
     const lang = tab.filePath ? detectLanguage(tab.label) : 'cpp';
-    const sel  = document.getElementById('lang-select');
+    const sel = document.getElementById('lang-select');
     if (sel) sel.value = lang;
     document.title = tab.filePath || 'untitled';
   }
-
   updateBreadcrumb(tab.filePath, pane);
   pane.tabBarEl.querySelectorAll('.tab').forEach(el =>
     el.classList.toggle('active', Number(el.dataset.tabId) === tabId));
@@ -302,26 +417,21 @@ function closeTab(tabId) {
   const tab = tabs.get(tabId);
   if (!tab) return;
   if (tab.isModified && !confirm(`"${tab.label}" có thay đổi chưa lưu. Đóng vẫn tiếp tục?`)) return;
-
   const pane = getPaneForTab(tabId);
   if (!pane) return;
-
-  let modelShared = false;
-  for (const [tid, t] of tabs) { if (tid !== tabId && t.model === tab.model) { modelShared = true; break; } }
-  if (!modelShared) tab.model.dispose();
-
+  let shared = false;
+  for (const [tid, t] of tabs) { if (tid !== tabId && t.model === tab.model) { shared = true; break; } }
+  if (!shared) tab.model.dispose();
   tabs.delete(tabId);
   pane.tabIds = pane.tabIds.filter(x => x !== tabId);
   pane.tabBarEl.querySelector(`[data-tab-id="${tabId}"]`)?.remove();
-
   if (pane.activeTabId === tabId) {
     if (pane.tabIds.length > 0) {
       activateTabInPane(pane.tabIds[pane.tabIds.length - 1], pane);
     } else if (panes.length > 1) {
       removePane(pane.id);
     } else {
-      pane.activeTabId = null;
-      currentFilePath  = null;
+      pane.activeTabId = null; currentFilePath = null;
       if (pane.editor) pane.editor.setModel(monaco.editor.createModel('', 'plaintext'));
       updateBreadcrumb(null, pane);
       document.title = 'RCE App';
@@ -337,7 +447,7 @@ function appendTabElToPane(tabId, pane) {
 
 function buildTabEl(tabId, pane) {
   const tab = tabs.get(tabId);
-  const el  = document.createElement('div');
+  const el = document.createElement('div');
   el.className = `tab${pane?.activeTabId === tabId ? ' active' : ''}${tab.isModified ? ' modified' : ''}`;
   el.dataset.tabId = tabId;
   el.title = tab.filePath || tab.label;
@@ -353,136 +463,14 @@ function buildTabEl(tabId, pane) {
   el.addEventListener('click', (e) => { if (!e.target.closest('.tab-close')) activateTab(tabId); });
   el.querySelector('.tab-close').addEventListener('click', (e) => { e.stopPropagation(); closeTab(tabId); });
   el.addEventListener('mousedown', (e) => { if (e.button === 1) { e.preventDefault(); closeTab(tabId); } });
-
   el.addEventListener('dragstart', (e) => {
     e.dataTransfer.setData('text/plain', String(tabId));
     e.dataTransfer.effectAllowed = 'move';
     el.classList.add('dragging');
     setTimeout(() => showDropZones(), 0);
   });
-  el.addEventListener('dragend', () => {
-    el.classList.remove('dragging');
-    hideDropZones();
-  });
-
+  el.addEventListener('dragend', () => { el.classList.remove('dragging'); hideDropZones(); });
   return el;
-}
-
-// =====================================================================
-// TAB DRAG & DROP — split / move between panes
-// =====================================================================
-let _dropOverlay = null;
-
-function showDropZones() {
-  if (_dropOverlay) return;
-  _dropOverlay = document.createElement('div');
-  _dropOverlay.className = 'drop-overlay';
-
-  if (panes.length === 1) {
-    _dropOverlay.innerHTML = `
-      <div class="drop-zone drop-zone-left" data-drop="left"></div>
-      <div class="drop-zone drop-zone-right" data-drop="right"></div>
-    `;
-  } else {
-    panes.forEach(p => {
-      const zone = document.createElement('div');
-      zone.className = 'drop-zone drop-zone-pane';
-      zone.dataset.drop = 'pane';
-      zone.dataset.paneId = p.id;
-      zone.style.flex = p.el.style.flex || '1';
-      _dropOverlay.appendChild(zone);
-    });
-  }
-
-  _dropOverlay.querySelectorAll('.drop-zone').forEach(zone => {
-    zone.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; zone.classList.add('drop-hover'); });
-    zone.addEventListener('dragleave', () => zone.classList.remove('drop-hover'));
-    zone.addEventListener('drop', (e) => {
-      e.preventDefault();
-      const tabId = Number(e.dataTransfer.getData('text/plain'));
-      const action = zone.dataset.drop;
-
-      if (action === 'left' || action === 'right') {
-        handleDropSplit(tabId, action);
-      } else if (action === 'pane') {
-        handleDropToPane(tabId, Number(zone.dataset.paneId));
-      }
-      hideDropZones();
-    });
-  });
-
-  document.getElementById('main-editor').appendChild(_dropOverlay);
-}
-
-function hideDropZones() {
-  if (_dropOverlay) { _dropOverlay.remove(); _dropOverlay = null; }
-}
-
-function handleDropSplit(tabId, side) {
-  if (panes.length >= 2) return;
-  const srcPane = getPaneForTab(tabId);
-  if (!srcPane) return;
-
-  const newPane = createPane();
-
-  // Move the dragged tab to the new pane
-  moveTabToPane(tabId, newPane.id);
-
-  // If dropped on left, the new pane should be first
-  if (side === 'left') {
-    const mainEditor = document.getElementById('main-editor');
-    const handle = mainEditor.querySelector('.pane-resize-handle');
-    if (handle) mainEditor.insertBefore(newPane.el, handle);
-    mainEditor.insertBefore(newPane.el, mainEditor.firstChild);
-    // Swap in panes array
-    const idx = panes.indexOf(newPane);
-    panes.splice(idx, 1);
-    panes.unshift(newPane);
-    focusedPaneIdx = 0;
-  }
-
-  focusPane(newPane.id);
-  if (newPane.tabIds.length > 0) activateTabInPane(newPane.tabIds[0], newPane);
-}
-
-function handleDropToPane(tabId, targetPaneId) {
-  const srcPane = getPaneForTab(tabId);
-  if (!srcPane || srcPane.id === targetPaneId) return;
-  moveTabToPane(tabId, targetPaneId);
-}
-
-function moveTabToPane(tabId, targetPaneId) {
-  const tab = tabs.get(tabId);
-  if (!tab) return;
-  const srcPane = getPaneForTab(tabId);
-  const dstPane = getPaneById(targetPaneId);
-  if (!srcPane || !dstPane || srcPane === dstPane) return;
-
-  // Remove from source
-  srcPane.tabIds = srcPane.tabIds.filter(x => x !== tabId);
-  srcPane.tabBarEl.querySelector(`[data-tab-id="${tabId}"]`)?.remove();
-
-  if (srcPane.activeTabId === tabId) {
-    if (srcPane.tabIds.length > 0) {
-      activateTabInPane(srcPane.tabIds[srcPane.tabIds.length - 1], srcPane);
-    } else if (panes.length > 1) {
-      // Don't remove pane mid-drag; set empty state
-      srcPane.activeTabId = null;
-      if (srcPane.editor) srcPane.editor.setModel(monaco.editor.createModel('', 'plaintext'));
-      updateBreadcrumb(null, srcPane);
-    }
-  }
-
-  // Add to destination
-  dstPane.tabIds.push(tabId);
-  appendTabElToPane(tabId, dstPane);
-  focusPane(dstPane.id);
-  activateTabInPane(tabId, dstPane);
-
-  // Auto-close empty source pane
-  if (srcPane.tabIds.length === 0 && panes.length > 1) {
-    removePane(srcPane.id);
-  }
 }
 
 function refreshTabEl(tabId) {
@@ -493,28 +481,118 @@ function refreshTabEl(tabId) {
   el.classList.toggle('modified', tabs.get(tabId)?.isModified ?? false);
 }
 
-function initPaneResize(handle) {
-  let dragging = false, startX, leftEl, rightEl, lw, rw;
+// =====================================================================
+// DRAG & DROP — 5-region per-pane (top / bottom / left / right / center)
+// =====================================================================
+let _dropActive = false;
+
+function showDropZones() {
+  if (_dropActive) return;
+  _dropActive = true;
+  panes.forEach(pane => {
+    const ov = document.createElement('div');
+    ov.className = 'pane-drop-overlay';
+    ov.innerHTML = `
+      <div class="pdz pdz-top" data-action="top"></div>
+      <div class="pdz-mid">
+        <div class="pdz pdz-left" data-action="left"></div>
+        <div class="pdz pdz-center" data-action="center"></div>
+        <div class="pdz pdz-right" data-action="right"></div>
+      </div>
+      <div class="pdz pdz-bottom" data-action="bottom"></div>
+    `;
+    ov.querySelectorAll('.pdz').forEach(z => {
+      z.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; z.classList.add('drop-hover'); });
+      z.addEventListener('dragleave', () => z.classList.remove('drop-hover'));
+      z.addEventListener('drop', (e) => {
+        e.preventDefault();
+        const tabId = Number(e.dataTransfer.getData('text/plain'));
+        const act = z.dataset.action;
+        hideDropZones();
+        if (act === 'center')     handleDropMove(tabId, pane.id);
+        else if (act === 'left')  handleDropSplit(tabId, pane.id, 'horizontal', 'before');
+        else if (act === 'right') handleDropSplit(tabId, pane.id, 'horizontal', 'after');
+        else if (act === 'top')   handleDropSplit(tabId, pane.id, 'vertical', 'before');
+        else if (act === 'bottom')handleDropSplit(tabId, pane.id, 'vertical', 'after');
+      });
+    });
+    pane.el.appendChild(ov);
+  });
+}
+
+function hideDropZones() {
+  document.querySelectorAll('.pane-drop-overlay').forEach(el => el.remove());
+  _dropActive = false;
+}
+
+function handleDropSplit(tabId, targetPaneId, direction, side) {
+  const newPane = splitPane(targetPaneId, direction, side);
+  if (!newPane) return;
+  moveTabToPane(tabId, newPane.id);
+}
+
+function handleDropMove(tabId, targetPaneId) {
+  const src = getPaneForTab(tabId);
+  if (!src || src.id === targetPaneId) return;
+  moveTabToPane(tabId, targetPaneId);
+}
+
+function moveTabToPane(tabId, targetPaneId) {
+  const tab = tabs.get(tabId);
+  if (!tab) return;
+  const src = getPaneForTab(tabId);
+  const dst = getPaneById(targetPaneId);
+  if (!src || !dst || src === dst) return;
+
+  src.tabIds = src.tabIds.filter(x => x !== tabId);
+  src.tabBarEl.querySelector(`[data-tab-id="${tabId}"]`)?.remove();
+
+  if (src.activeTabId === tabId) {
+    if (src.tabIds.length > 0) {
+      activateTabInPane(src.tabIds[src.tabIds.length - 1], src);
+    } else {
+      src.activeTabId = null;
+      if (src.editor) src.editor.setModel(monaco.editor.createModel('', 'plaintext'));
+      updateBreadcrumb(null, src);
+    }
+  }
+
+  dst.tabIds.push(tabId);
+  appendTabElToPane(tabId, dst);
+  focusPane(dst.id);
+  activateTabInPane(tabId, dst);
+
+  if (src.tabIds.length === 0 && panes.length > 1) removePane(src.id);
+}
+
+// =====================================================================
+// SPLIT HANDLE RESIZE (works for both horizontal and vertical)
+// =====================================================================
+function initSplitHandleResize(handle, direction) {
+  let dragging = false, startPos, prevEl, nextEl, prevSize, nextSize;
+  const isH = direction === 'horizontal';
 
   handle.addEventListener('mousedown', (e) => {
-    leftEl  = handle.previousElementSibling;
-    rightEl = handle.nextElementSibling;
-    if (!leftEl || !rightEl) return;
-    dragging = true; startX = e.clientX;
-    lw = leftEl.offsetWidth; rw = rightEl.offsetWidth;
+    prevEl = handle.previousElementSibling;
+    nextEl = handle.nextElementSibling;
+    if (!prevEl || !nextEl) return;
+    dragging = true;
+    startPos = isH ? e.clientX : e.clientY;
+    prevSize = isH ? prevEl.offsetWidth : prevEl.offsetHeight;
+    nextSize = isH ? nextEl.offsetWidth : nextEl.offsetHeight;
     handle.classList.add('active');
-    document.body.style.cursor = 'col-resize';
+    document.body.style.cursor = isH ? 'col-resize' : 'row-resize';
     document.body.style.userSelect = 'none';
     e.preventDefault();
   });
 
   document.addEventListener('mousemove', (e) => {
     if (!dragging) return;
-    const dx = e.clientX - startX;
-    const total = lw + rw;
-    const newL = Math.max(200, Math.min(lw + dx, total - 200));
-    leftEl.style.flex  = `0 0 ${newL}px`;
-    rightEl.style.flex = `0 0 ${total - newL}px`;
+    const d = (isH ? e.clientX : e.clientY) - startPos;
+    const total = prevSize + nextSize;
+    const newPrev = Math.max(120, Math.min(prevSize + d, total - 120));
+    prevEl.style.flex = `0 0 ${newPrev}px`;
+    nextEl.style.flex = `0 0 ${total - newPrev}px`;
   });
 
   document.addEventListener('mouseup', () => {
@@ -716,7 +794,10 @@ function handleMenuAction(action) {
       document.getElementById('theme-toggle-btn')?.click();
       break;
     case 'split-editor':
-      splitEditor();
+      splitEditor('horizontal');
+      break;
+    case 'split-editor-down':
+      splitEditor('vertical');
       break;
     case 'close-split':
       if (panes.length > 1) removePane(getFocusedPane().id);
@@ -815,6 +896,7 @@ const PALETTE_COMMANDS = [
   { label: 'Open Folder…',             shortcut: '',              action: 'open-folder' },
   { label: 'Save',                     shortcut: 'Ctrl+S',       action: 'save' },
   { label: 'Split Editor Right',        shortcut: 'Ctrl+\\',      action: 'split-editor' },
+  { label: 'Split Editor Down',        shortcut: '',              action: 'split-editor-down' },
   { label: 'Close Split Pane',         shortcut: '',              action: 'close-split' },
   { label: 'Toggle Dark / Light Mode', shortcut: '',              action: 'toggle-theme' },
   { label: 'Toggle Fullscreen',        shortcut: 'F11',           action: 'toggle-fullscreen' },
@@ -1170,7 +1252,7 @@ function showNameInput(dirPath, type) {
 // INIT: DOMContentLoaded
 // =====================================================================
 window.addEventListener('DOMContentLoaded', () => {
-  createPane();
+  initRootPane();
   buildSidebarToolbar();
   initCustomMenubar();
   initKeyboardShortcuts();

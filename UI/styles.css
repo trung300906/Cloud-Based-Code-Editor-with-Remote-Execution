@@ -298,40 +298,35 @@ body {
   width: 100%;
 }
 
-/* Editor area — horizontal pane layout */
+/* Editor area */
 .main-editor {
   flex-grow: 1;
   display: flex;
-  flex-direction: row;
   min-width: 0;
   min-height: 0;
 }
 
-/* Single editor pane (tab-bar → breadcrumb → editor, stacked vertically) */
+/* Recursive split containers */
+.split-container {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.split-container.split-horizontal { flex-direction: row; }
+.split-container.split-vertical   { flex-direction: column; }
+
+/* Single editor pane (leaf) */
 .editor-pane {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
   min-height: 0;
-  border-right: 1px solid #1a1a1a;
+  position: relative;
+  border: 1px solid #1a1a1a;
 }
-.editor-pane:last-of-type { border-right: none; }
-.editor-pane.focused .tab-bar { background-color: #252526; }
-
-/* Resize handle between panes */
-.pane-resize-handle {
-  width: 4px;
-  flex-shrink: 0;
-  cursor: col-resize;
-  background-color: transparent;
-  z-index: 10;
-  transition: background-color 0.12s;
-}
-.pane-resize-handle:hover,
-.pane-resize-handle.active {
-  background-color: #0078d4;
-}
+.editor-pane.focused { border-color: #094771; }
 
 .pane-editor-container {
   flex-grow: 1;
@@ -339,32 +334,46 @@ body {
   min-height: 0;
 }
 
+/* Split handles (horizontal = vertical bar, vertical = horizontal bar) */
+.split-handle {
+  flex-shrink: 0;
+  background-color: transparent;
+  z-index: 10;
+  transition: background-color 0.12s;
+}
+.split-handle-h { width: 4px; cursor: col-resize; }
+.split-handle-v { height: 4px; cursor: row-resize; }
+.split-handle:hover,
+.split-handle.active { background-color: #0078d4; }
+
 /* Tab drag state */
 .tab.dragging { opacity: 0.4; }
 
-/* Drop overlay covering the editor area */
-.drop-overlay {
+/* ---- 5-region per-pane drop overlay ---- */
+.pane-drop-overlay {
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
   z-index: 9000;
   pointer-events: all;
 }
-.main-editor { position: relative; }
-
-/* Drop zone (left/right halves or per-pane) */
-.drop-zone {
+.pdz-mid {
   flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background-color 0.12s;
-  border: 2px dashed transparent;
-  margin: 6px;
-  border-radius: 8px;
+  min-height: 0;
 }
-.drop-zone.drop-hover {
-  background-color: rgba(0, 120, 212, 0.12);
+.pdz {
+  border: 2px dashed transparent;
+  border-radius: 6px;
+  margin: 3px;
+  transition: background-color 0.1s, border-color 0.1s;
+}
+.pdz-top, .pdz-bottom { height: 22%; flex-shrink: 0; }
+.pdz-left, .pdz-right { width: 22%; flex-shrink: 0; }
+.pdz-center { flex: 1; }
+.pdz.drop-hover {
+  background-color: rgba(0, 120, 212, 0.15);
   border-color: #0078d4;
 }
 
@@ -591,14 +600,14 @@ body.light-mode .resize-handle.active {
   background-color: #0060c0;
 }
 
-body.light-mode .drop-zone.drop-hover {
-  background-color: rgba(0, 96, 192, 0.1);
+body.light-mode .editor-pane { border-color: #d0d0d0; }
+body.light-mode .editor-pane.focused { border-color: #0060c0; }
+body.light-mode .split-handle:hover,
+body.light-mode .split-handle.active { background-color: #0060c0; }
+body.light-mode .pdz.drop-hover {
+  background-color: rgba(0, 96, 192, 0.12);
   border-color: #0060c0;
 }
-body.light-mode .editor-pane { border-right-color: #d0d0d0; }
-body.light-mode .editor-pane.focused .tab-bar { background-color: #ececec; }
-body.light-mode .pane-resize-handle:hover,
-body.light-mode .pane-resize-handle.active { background-color: #0060c0; }
 
 body.light-mode .sidebar {
   background-color: #f3f3f3;

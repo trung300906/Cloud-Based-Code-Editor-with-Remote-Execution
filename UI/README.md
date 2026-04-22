@@ -6,7 +6,7 @@ Nhánh này chứa giao diện người dùng (UI) cơ bản và tính năng Fil
 - [x] Giao diện Editor tích hợp Monaco Editor.
 - [x] Nút Toggle Theme (Dark/Light mode).
 - [x] Nút chọn ngôn ngữ (C++ / Python).
-- [ ] **File Explorer:** Đọc danh sách file/folder từ máy tính và hiển thị dạng Tree.
+- [x] **File Explorer:** Đọc danh sách file/folder từ máy tính và hiển thị dạng Tree.
 
 ## Yêu cầu hệ thống (Prerequisites)
 Để chạy được project này, máy bạn BẮT BUỘC phải cài đặt:
