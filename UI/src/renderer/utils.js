@@ -3,12 +3,52 @@
 // =====================================================================
 
 export const BINARY_EXTS = new Set([
-  'exe','dll','so','dylib','bin','o','obj','a','lib',
-  'zip','tar','gz','bz2','xz','7z','rar',
-  'jpg','jpeg','png','gif','bmp','ico','webp','tiff',
-  'mp3','mp4','wav','ogg','flac','mkv','avi','mov',
-  'pdf','doc','docx','xls','xlsx','ppt','pptx',
-  'woff','woff2','ttf','eot','pyc','pyo','class',
+  "exe",
+  "dll",
+  "so",
+  "dylib",
+  "bin",
+  "o",
+  "obj",
+  "a",
+  "lib",
+  "zip",
+  "tar",
+  "gz",
+  "bz2",
+  "xz",
+  "7z",
+  "rar",
+  "jpg",
+  "jpeg",
+  "png",
+  "gif",
+  "bmp",
+  "ico",
+  "webp",
+  "tiff",
+  "mp3",
+  "mp4",
+  "wav",
+  "ogg",
+  "flac",
+  "mkv",
+  "avi",
+  "mov",
+  "pdf",
+  "doc",
+  "docx",
+  "xls",
+  "xlsx",
+  "ppt",
+  "pptx",
+  "woff",
+  "woff2",
+  "ttf",
+  "eot",
+  "pyc",
+  "pyo",
+  "class",
 ]);
 
 /**
@@ -17,7 +57,7 @@ export const BINARY_EXTS = new Set([
  * @returns {boolean}
  */
 export function isBinaryFile(filename) {
-  return BINARY_EXTS.has(filename.split('.').pop().toLowerCase());
+  return BINARY_EXTS.has(filename.split(".").pop().toLowerCase());
 }
 
 /**
@@ -27,10 +67,10 @@ export function isBinaryFile(filename) {
  */
 export function escapeHtml(s) {
   return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 /**
@@ -40,11 +80,11 @@ export function escapeHtml(s) {
  * @returns {string} HTML string với <span class="qo-highlight">
  */
 export function highlightMatch(text, query) {
-  const safe  = escapeHtml(text);
+  const safe = escapeHtml(text);
   if (!query) return safe;
-  const lower  = safe.toLowerCase();
+  const lower = safe.toLowerCase();
   const qLower = escapeHtml(query).toLowerCase();
-  const idx    = lower.indexOf(qLower);
+  const idx = lower.indexOf(qLower);
   if (idx === -1) return safe;
   return (
     safe.slice(0, idx) +
@@ -66,7 +106,7 @@ export function rebuildFileIndex(items, basePath, result = []) {
       if (item.children) rebuildFileIndex(item.children, basePath, result);
     } else {
       const rel = item.path.startsWith(basePath)
-        ? item.path.slice(basePath.length).replace(/^[\\/]/, '')
+        ? item.path.slice(basePath.length).replace(/^[\\/]/, "")
         : item.name;
       result.push({ name: item.name, path: item.path, rel });
     }
