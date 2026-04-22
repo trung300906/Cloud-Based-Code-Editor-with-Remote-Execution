@@ -9,6 +9,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onFileSaved: (cb) => ipcRenderer.on("file-saved", (e, path) => cb(path)),
   requestReadFile: (filePath) =>
     ipcRenderer.send("request-read-file", filePath),
+  requestReadBinary: (filePath) =>
+    ipcRenderer.send("request-read-binary", filePath),
+  onBinaryFileOpen: (cb) =>
+    ipcRenderer.on("binary-file-open", (e, data) => cb(data)),
   onFolderOpened: (cb) => ipcRenderer.on("folder-opened", (e, val) => cb(val)),
   requestOpenFolder: (folderPath) =>
     ipcRenderer.send("request-open-folder", folderPath),

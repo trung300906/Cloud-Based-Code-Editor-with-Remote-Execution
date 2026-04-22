@@ -3,8 +3,8 @@
 // =====================================================================
 import { state, LS } from "./state.js";
 import { SVG, getFileIcon } from "./icons.js";
-import { isBinaryFile, rebuildFileIndex } from "./utils.js";
-import { openOrActivateTab } from "./tab.js";
+import { isBinaryFile, isViewableFile, rebuildFileIndex } from "./utils.js";
+import { openOrActivateTab, openViewerTab } from "./tab.js";
 
 // =====================================================================
 // TREE STATE PERSISTENCE
@@ -163,7 +163,9 @@ function buildFileLabel(item) {
     label.classList.add("tree-selected");
     state.selectedFileEl = label;
 
-    if (isBinaryFile(item.name)) {
+    if (isViewableFile(item.name)) {
+      window.electronAPI.requestReadBinary(item.path);
+    } else if (isBinaryFile(item.name)) {
       alert(`"${item.name}" là file binary, không thể mở dạng text.`);
     } else {
       window.electronAPI.requestReadFile(item.path);

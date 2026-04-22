@@ -8,7 +8,7 @@ import "./monaco-init.js";
 
 import { state, LS } from "./state.js";
 import { initRootPane } from "./pane.js";
-import { openOrActivateTab, buildTabEl } from "./tab.js";
+import { openOrActivateTab, openViewerTab, buildTabEl } from "./tab.js";
 import { getFocusedPane } from "./pane.js";
 import { updateBreadcrumb } from "./breadcrumb.js";
 import { doSave } from "./menubar.js";
@@ -77,6 +77,11 @@ window.electronAPI.onFileSaved((savedPath) => {
 /** File > Save (Ctrl+S) — main process yêu cầu renderer gửi content */
 window.electronAPI.onSaveRequest(() => {
   doSave();
+});
+
+/** Mở binary file (image/PDF) từ sidebar */
+window.electronAPI.onBinaryFileOpen((data) => {
+  openViewerTab(data.filePath, data.dataUrl, data.mime);
 });
 
 /** Mở folder từ File > Open Folder hoặc restore session */
