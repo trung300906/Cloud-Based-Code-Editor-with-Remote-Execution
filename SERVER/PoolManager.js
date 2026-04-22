@@ -77,7 +77,7 @@ class MasterPoolManager {
 			this.minPoolSize = 1;
 		}
 
-		this.maxPoolSize = Number(opts.maxPoolSize ?? process.env.MAX_POOL ?? 10);
+		this.maxPoolSize = Number(opts.maxPoolSize ?? process.env.MAX_POOL ?? 100);
 		if (!Number.isFinite(this.maxPoolSize) || this.maxPoolSize < this.minPoolSize) {
 			this.maxPoolSize = this.minPoolSize;
 		}
@@ -104,6 +104,9 @@ class MasterPoolManager {
 		);
 		this.resetBudgetMs = Number(
 			opts.resetBudgetMs ?? process.env.VIRGIN_RESET_BUDGET_MS ?? 50,
+		);
+		this.virginResetTimeoutMs = Number(
+			opts.virginResetTimeoutMs ?? process.env.VIRGIN_RESET_TIMEOUT_MS ?? 10000,
 		);
 
 		this.queueTimeoutMs = Number(
@@ -256,48 +259,13 @@ class MasterPoolManager {
 	}
 
 	async virginReset(id) {
-		const ctr = this.docker.getContainer(id);
 		const started = process.hrtime.bigint();
-
-		// Dọn tiến trình user cũ + dọn RAM workspace, giữ container sống để tái sử dụng.
-		const cmd = [
-			"sh",
-			"-c",
-			"pkill -9 -u sandbox_user >/dev/null 2>&1 || true; rm -rf /workspace/*; true",
-		];
-
 		try {
-			const exec = await ctr.exec({
-				Cmd: cmd,
-                User: '0',
-				AttachStdout: true,
-				AttachStderr: true,
-			});
-
-			const stream = await exec.start({ hijack: true, stdin: false });
-            stream.resume();
-			await new Promise((resolve, reject) => {
-				let done = false;
-				const finish = () => {
-					if (done) return;
-					done = true;
-					resolve();
-				};
-
-				stream.on("error", (err) => {
-					if (done) return;
-					done = true;
-					reject(err);
-				});
-				stream.on("end", finish);
-				stream.on("close", finish);
-			});
-
-			const status = await exec.inspect();
-			if (status.ExitCode !== 0) {
-				throw new Error("reset command failed with exit code " + status.ExitCode);
-			}
-
+			await this._withTimeout(
+				this._execVirginReset(id),
+				this.virginResetTimeoutMs,
+				"virgin reset timeout (" + this.virginResetTimeoutMs + "ms)",
+			);
 			const durationMs = Number(process.hrtime.bigint() - started) / 1e6;
 			return {
 				ok: true,
@@ -309,6 +277,45 @@ class MasterPoolManager {
 				ok: false,
 				error: String(err && err.message ? err.message : err),
 			};
+		}
+	}
+
+	async _execVirginReset(id) {
+		const ctr = this.docker.getContainer(id);
+		const cmd = [
+			"sh",
+			"-c",
+			"pkill -9 -u sandbox_user >/dev/null 2>&1 || true; rm -rf /workspace/*; true",
+		];
+
+		const exec = await ctr.exec({
+			Cmd: cmd,
+			User: "0",
+			AttachStdout: true,
+			AttachStderr: true,
+		});
+
+		const stream = await exec.start({ hijack: true, stdin: false });
+		stream.resume();
+		await new Promise((resolve, reject) => {
+			let done = false;
+			const finish = () => {
+				if (done) return;
+				done = true;
+				resolve();
+			};
+			stream.on("error", (err) => {
+				if (done) return;
+				done = true;
+				reject(err);
+			});
+			stream.on("end", finish);
+			stream.on("close", finish);
+		});
+
+		const status = await exec.inspect();
+		if (status.ExitCode !== 0) {
+			throw new Error("reset command failed with exit code " + status.ExitCode);
 		}
 	}
 
