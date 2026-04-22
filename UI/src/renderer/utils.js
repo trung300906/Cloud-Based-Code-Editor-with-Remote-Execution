@@ -2,63 +2,26 @@
 // UTILS — Pure utilities dùng chung bởi nhiều module
 // =====================================================================
 
-export const BINARY_EXTS = new Set([
-  "exe",
-  "dll",
-  "so",
-  "dylib",
-  "bin",
-  "o",
-  "obj",
-  "a",
-  "lib",
-  "zip",
-  "tar",
-  "gz",
-  "bz2",
-  "xz",
-  "7z",
-  "rar",
-  "jpg",
-  "jpeg",
-  "png",
-  "gif",
-  "bmp",
-  "ico",
-  "webp",
-  "tiff",
-  "mp3",
-  "mp4",
-  "wav",
-  "ogg",
-  "flac",
-  "mkv",
-  "avi",
-  "mov",
-  "pdf",
-  "doc",
-  "docx",
-  "xls",
-  "xlsx",
-  "ppt",
-  "pptx",
-  "woff",
-  "woff2",
-  "ttf",
-  "eot",
-  "pyc",
-  "pyo",
-  "class",
+export const IMAGE_EXTS = new Set([
+  "jpg", "jpeg", "png", "gif", "bmp", "ico", "webp", "tiff", "svg",
 ]);
 
-/**
- * Kiểm tra file có phải binary không (không thể mở dạng text).
- * @param {string} filename
- * @returns {boolean}
- */
-export function isBinaryFile(filename) {
-  return BINARY_EXTS.has(filename.split(".").pop().toLowerCase());
-}
+export const PDF_EXTS = new Set(["pdf"]);
+
+export const BINARY_EXTS = new Set([
+  "exe", "dll", "so", "dylib", "bin", "o", "obj", "a", "lib",
+  "zip", "tar", "gz", "bz2", "xz", "7z", "rar",
+  "mp3", "mp4", "wav", "ogg", "flac", "mkv", "avi", "mov",
+  "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+  "woff", "woff2", "ttf", "eot", "pyc", "pyo", "class",
+]);
+
+function extOf(filename) { return filename.split(".").pop().toLowerCase(); }
+
+export function isBinaryFile(filename) { return BINARY_EXTS.has(extOf(filename)); }
+export function isImageFile(filename)  { return IMAGE_EXTS.has(extOf(filename)); }
+export function isPdfFile(filename)    { return PDF_EXTS.has(extOf(filename)); }
+export function isViewableFile(filename) { return isImageFile(filename) || isPdfFile(filename); }
 
 /**
  * Escape HTML entities để tránh XSS khi inject vào innerHTML.

@@ -26,13 +26,36 @@ function registerFileIPC(mainWindow) {
     }
   });
 
-  // ---- Read file và gửi nội dung về renderer ----
+  // ---- Read text file và gửi nội dung về renderer ----
   ipcMain.on("request-read-file", (event, filePath) => {
     try {
       const content = fs.readFileSync(filePath, "utf-8");
       mainWindow.webContents.send("file-open", { filePath, content });
     } catch (err) {
       console.error("Lỗi không đọc được file:", err);
+    }
+  });
+
+  // ---- Read binary file (image/pdf) as base64 ----
+  ipcMain.on("request-read-binary", (event, filePath) => {
+    try {
+      const buffer = fs.readFileSync(filePath);
+      const ext = path.extname(filePath).slice(1).toLowerCase();
+      const mimeMap = {
+        png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+        gif: "image/gif", bmp: "image/bmp", webp: "image/webp",
+        ico: "image/x-icon", svg: "image/svg+xml", tiff: "image/tiff",
+        pdf: "application/pdf",
+      };
+      const mime = mimeMap[ext] || "application/octet-stream";
+      const base64 = buffer.toString("base64");
+      mainWindow.webContents.send("binary-file-open", {
+        filePath,
+        dataUrl: `data:${mime};base64,${base64}`,
+        mime,
+      });
+    } catch (err) {
+      console.error("Lỗi đọc binary file:", err);
     }
   });
 

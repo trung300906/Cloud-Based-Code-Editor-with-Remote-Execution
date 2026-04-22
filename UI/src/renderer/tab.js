@@ -7,7 +7,7 @@
 import { state } from "./state.js";
 import { detectLanguage } from "./lang-detect.js";
 import { BC_ICON, getBcFileIcon } from "./icons.js";
-import { escapeHtml } from "./utils.js";
+import { escapeHtml, isImageFile, isPdfFile } from "./utils.js";
 import { updateBreadcrumb } from "./breadcrumb.js";
 import {
   getFocusedPane,
@@ -23,6 +23,45 @@ import { showDropZones, hideDropZones } from "./drag-drop.js";
 export function getTabByPath(fp) {
   for (const t of state.tabs.values()) if (t.filePath === fp) return t;
   return null;
+}
+
+/**
+ * Mở file image/PDF trong viewer tab (không dùng Monaco).
+ * @param {string} filePath
+ * @param {string} dataUrl  — base64 data URL
+ * @param {string} mime
+ * @param {number|null} [paneId]
+ */
+export function openViewerTab(filePath, dataUrl, mime, paneId) {
+  const existing = filePath ? getTabByPath(filePath) : null;
+  if (existing) {
+    const p = getPaneForTab(existing.id);
+    if (p) { focusPane(p.id); activateTab(existing.id); }
+    return;
+  }
+
+  const id    = ++state.tabCounter;
+  const label = filePath.split(/[\\/]/).pop();
+  const isImg = mime.startsWith('image/');
+
+  const viewerEl = document.createElement('div');
+  viewerEl.className = 'file-viewer';
+  if (isImg) {
+    viewerEl.innerHTML = `<img src="${dataUrl}" alt="${escapeHtml(label)}" class="viewer-image" />`;
+  } else {
+    viewerEl.innerHTML = `<iframe src="${dataUrl}" class="viewer-pdf" title="${escapeHtml(label)}"></iframe>`;
+  }
+
+  state.tabs.set(id, {
+    id, filePath, label, model: null, isModified: false,
+    viewerType: isImg ? 'image' : 'pdf', viewerEl, dataUrl,
+  });
+
+  const target = paneId ? getPaneById(paneId) : getFocusedPane();
+  if (!target) return;
+  target.tabIds.push(id);
+  appendTabElToPane(id, target);
+  activateTabInPane(id, target);
 }
 
 /**
@@ -83,15 +122,30 @@ export function activateTab(tabId) {
 // ---- Activate tab trong một pane cụ thể ----
 export function activateTabInPane(tabId, pane) {
   const tab = state.tabs.get(tabId);
-  if (!tab || !pane?.editor) return;
+  if (!tab) return;
   pane.activeTabId = tabId;
-  pane.editor.setModel(tab.model);
+
+  // Remove any existing viewer overlay
+  const oldViewer = pane.el.querySelector('.file-viewer');
+  if (oldViewer) oldViewer.remove();
+
+  if (tab.viewerType) {
+    // Viewer tab (image/PDF): hide Monaco, show viewer
+    if (pane.editor) pane.editor.getDomNode().style.display = 'none';
+    pane.containerEl.appendChild(tab.viewerEl);
+  } else {
+    // Monaco tab: show editor, set model
+    if (!pane.editor) return;
+    pane.editor.getDomNode().style.display = '';
+    pane.editor.setModel(tab.model);
+  }
+
   if (pane.id === state.focusedPaneId) {
     state.currentFilePath = tab.filePath;
-    pane.editor.focus();
+    if (!tab.viewerType && pane.editor) pane.editor.focus();
     const lang = tab.filePath ? detectLanguage(tab.label) : "cpp";
     const sel = document.getElementById("lang-select");
-    if (sel) sel.value = lang;
+    if (sel) sel.value = tab.viewerType ? '' : lang;
     document.title = tab.filePath || "untitled";
   }
   updateBreadcrumb(tab.filePath, pane);
@@ -101,7 +155,7 @@ export function activateTabInPane(tabId, pane) {
       el.classList.toggle("active", Number(el.dataset.tabId) === tabId),
     );
 
-  // Sync sidebar file tree selection to match the active tab
+  // Sync sidebar file tree selection
   if (tab.filePath) {
     if (state.selectedFileEl)
       state.selectedFileEl.classList.remove("tree-selected");
@@ -129,15 +183,21 @@ export function closeTab(tabId) {
   const pane = getPaneForTab(tabId);
   if (!pane) return;
 
+  // Remove viewer element if viewer tab
+  if (tab.viewerType) {
+    const viewer = pane.el.querySelector('.file-viewer');
+    if (viewer) viewer.remove();
+    if (pane.editor) pane.editor.getDomNode().style.display = '';
+  }
+
   // Dispose model nếu không còn tab nào khác dùng chung
   let shared = false;
-  for (const [tid, t] of state.tabs) {
-    if (tid !== tabId && t.model === tab.model) {
-      shared = true;
-      break;
+  if (tab.model) {
+    for (const [tid, t] of state.tabs) {
+      if (tid !== tabId && t.model === tab.model) { shared = true; break; }
     }
   }
-  if (!shared) tab.model.dispose();
+  if (!shared && tab.model) tab.model.dispose();
 
   state.tabs.delete(tabId);
   pane.tabIds = pane.tabIds.filter((x) => x !== tabId);
