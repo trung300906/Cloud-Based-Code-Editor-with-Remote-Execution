@@ -1,0 +1,8 @@
+module.exports = {
+    AUTH: 0x01,
+    EDIT: 0x02,
+    RUN: 0x03,
+    CURSOR: 0x04,
+    CHAT: 0x05,
+    RESULT: 0x06
+};
