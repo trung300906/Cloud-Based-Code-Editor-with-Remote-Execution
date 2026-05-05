@@ -4,7 +4,7 @@ const net          = require('net');
 const os           = require('os');
 const { PassThrough } = require('stream');
 const { MasterPoolManager } = require('./PoolManager.js');
-const HeartbeatClient       = require('./HearthbeatClientWorker.js');
+const HeartbeatWorker       = require('./HearthbeatWorker.js');
 
 // ─── Binary Frame Protocol ──────────────────────────────────────
 // Wire format:  [4B payload-length BE] [1B type] [payload …]
@@ -160,8 +160,8 @@ async function main() {
     await pool.init();
     console.log('[WorkerNode] Pool ready:', pool.stats());
 
-    // ── 2. Nhân viên báo cáo (HeartbeatClient) ──────────────────
-    const heartbeat = new HeartbeatClient({
+    // ── 2. Nhân viên báo cáo (HeartbeatWorker) ──────────────────
+    const heartbeat = new HeartbeatWorker({
         gatewayHost: GATEWAY_HOST,
         gatewayPort: GATEWAY_PORT,
         nodeId:      NODE_ID,
