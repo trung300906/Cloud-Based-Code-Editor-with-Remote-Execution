@@ -2,6 +2,30 @@
 
 const net = require('net');
 
+// ─── LOGGING (giảm spam) ───────────────────────────────────────
+// Levels: error < warn < info < debug
+const HEARTBEAT_LOG_LEVEL = (
+    process.env.HEARTBEAT_LOG_LEVEL ||
+    process.env.GATEWAY_LOG_LEVEL ||
+    process.env.LOG_LEVEL ||
+    'info'
+).toLowerCase();
+const _LV = { error: 0, warn: 1, info: 2, debug: 3 };
+
+function _shouldLog(level) {
+    const want = _LV[HEARTBEAT_LOG_LEVEL] ?? _LV.info;
+    const got = _LV[level] ?? _LV.info;
+    return got <= want;
+}
+
+function _log(level, msg) {
+    if (!_shouldLog(level)) return;
+    if (level === 'error') console.error(msg);
+    else if (level === 'warn') console.warn(msg);
+    else if (level === 'debug' && typeof console.debug === 'function') console.debug(msg);
+    else console.log(msg);
+}
+
 const PRUNE_TIMEOUT_MS = 5000;
 const MAX_BUFFER_BYTES = 64 * 1024; // 64KB — tránh memory attack
 
@@ -10,6 +34,12 @@ class HeartbeatServer {
         this.port = opts.port ?? 4000;
         this.host = opts.host ?? '0.0.0.0';
         this.pruneIntervalMs = opts.pruneIntervalMs ?? 2000;
+
+        // Expose để Gateway có thể đánh giá worker còn "alive" không.
+        this.pruneTimeoutMs = Number(opts.pruneTimeoutMs ?? PRUNE_TIMEOUT_MS);
+        if (!Number.isFinite(this.pruneTimeoutMs) || this.pruneTimeoutMs < 1000) {
+            this.pruneTimeoutMs = PRUNE_TIMEOUT_MS;
+        }
 
         // Map<nodeId, { socket, cpu, ramFreeBytes, idleSlots, busySlots,
         //               totalSlots, workerPort, lastSeen }>
@@ -23,11 +53,11 @@ class HeartbeatServer {
         this._server = net.createServer((socket) => this._handleConnection(socket));
 
         this._server.on('error', (err) => {
-            console.error(`[HeartbeatServer] Server error: ${err.message}`);
+            _log('error', `[HeartbeatServer] Server error: ${err.message}`);
         });
 
         this._server.listen(this.port, this.host, () => {
-            console.log(`[HeartbeatServer] Listening on ${this.host}:${this.port}`);
+            _log('info', `[HeartbeatServer] Listening on ${this.host}:${this.port}`);
         });
 
         this._pruneTimer = setInterval(() => this._pruneDeadWorkers(), this.pruneIntervalMs);
@@ -52,7 +82,7 @@ class HeartbeatServer {
         }
 
         this.registry.clear();
-        console.log('[HeartbeatServer] Stopped.');
+        _log('info', '[HeartbeatServer] Stopped.');
     }
 
     // Trả về worker phù hợp nhất: ưu tiên idleSlots cao, CPU thấp.
@@ -64,7 +94,7 @@ class HeartbeatServer {
 
         for (const [nodeId, info] of this.registry.entries()) {
             // Bỏ qua entry stale chưa kịp bị prune
-            if (now - info.lastSeen > PRUNE_TIMEOUT_MS) continue;
+            if (now - info.lastSeen > this.pruneTimeoutMs) continue;
             if (info.idleSlots <= 0) continue;
             if (!info.workerPort) continue;
 
@@ -110,7 +140,7 @@ class HeartbeatServer {
 
             // Fix: chống memory attack — drop connection nếu buffer quá lớn
             if (Buffer.byteLength(buffer) > MAX_BUFFER_BYTES) {
-                console.warn(`[HeartbeatServer] Buffer overflow from ${socket.remoteAddress}, dropping.`);
+                _log('warn', `[HeartbeatServer] Buffer overflow from ${socket.remoteAddress}, dropping.`);
                 socket.destroy();
                 return;
             }
@@ -130,7 +160,7 @@ class HeartbeatServer {
 
         socket.on('error', (err) => {
             // 'close' luôn fire sau 'error', cleanup ở đó
-            console.error(`[HeartbeatServer] Socket error (${socket.remoteAddress}): ${err.message}`);
+            _log('warn', `[HeartbeatServer] Socket error (${socket.remoteAddress}): ${err.message}`);
         });
 
         socket.on('close', () => {
@@ -143,7 +173,7 @@ class HeartbeatServer {
         try {
             data = JSON.parse(line);
         } catch (err) {
-            console.warn(`[HeartbeatServer] Bad JSON from ${socket.remoteAddress}: ${err.message}`);
+            _log('warn', `[HeartbeatServer] Bad JSON from ${socket.remoteAddress}: ${err.message}`);
             return;
         }
 
@@ -151,12 +181,12 @@ class HeartbeatServer {
         const { nodeId, cpu, ramFreeBytes, idleSlots, busySlots, totalSlots, workerPort } = data;
 
         if (typeof nodeId !== 'string' || nodeId.trim() === '') {
-            console.warn(`[HeartbeatServer] Packet missing nodeId from ${socket.remoteAddress}`);
+            _log('warn', `[HeartbeatServer] Packet missing nodeId from ${socket.remoteAddress}`);
             return;
         }
 
         if (typeof cpu !== 'number' || typeof idleSlots !== 'number') {
-            console.warn(`[HeartbeatServer] Packet missing required fields from ${nodeId}`);
+            _log('warn', `[HeartbeatServer] Packet missing required fields from ${nodeId}`);
             return;
         }
 
@@ -175,8 +205,8 @@ class HeartbeatServer {
     _pruneDeadWorkers() {
         const now = Date.now();
         for (const [nodeId, info] of this.registry.entries()) {
-            if (now - info.lastSeen > PRUNE_TIMEOUT_MS) {
-                console.log(`[HeartbeatServer] Pruned stale worker: ${nodeId}`);
+            if (now - info.lastSeen > this.pruneTimeoutMs) {
+                _log('warn', `[HeartbeatServer] Pruned stale worker: ${nodeId}`);
                 this.registry.delete(nodeId);
             }
         }
@@ -185,7 +215,7 @@ class HeartbeatServer {
     _evictBySocket(socket) {
         for (const [nodeId, info] of this.registry.entries()) {
             if (info.socket === socket) {
-                console.log(`[HeartbeatServer] Worker disconnected: ${nodeId}`);
+                _log('info', `[HeartbeatServer] Worker disconnected: ${nodeId}`);
                 this.registry.delete(nodeId);
             }
         }
@@ -202,7 +232,7 @@ if (require.main === module) {
     setInterval(() => {
         const snap = server.snapshot();
         if (snap.length === 0) return;
-        console.log('[Registry]', JSON.stringify(snap, null, 2));
+        _log('info', '[Registry] ' + JSON.stringify(snap, null, 2));
     }, 3000).unref();
 
     process.on('SIGINT', () => {
