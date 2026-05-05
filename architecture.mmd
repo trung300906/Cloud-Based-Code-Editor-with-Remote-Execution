@@ -3,22 +3,7 @@ config:
   layout: elk
 ---
 graph TD
-    classDef client fill:#1e3a5f,stroke:#4a9eff,color:#e8f4ff
-    classDef gateway fill:#3d1f00,stroke:#ff8c00,color:#ffe4b3
-    classDef collab fill:#0d3320,stroke:#00c853,color:#b9f6ca
-    classDef database fill:#1a1a2e,stroke:#7c4dff,color:#e8d5ff
-    classDef master fill:#2d0a3e,stroke:#ce93d8,color:#f3e5f5
-    classDef slave fill:#1e1e2e,stroke:#9575cd,color:#e8d5ff
-    classDef pool fill:#003333,stroke:#00bcd4,color:#b2ebf2
-    classDef container fill:#004d40,stroke:#1de9b6,color:#e0f2f1
-    classDef reset fill:#1a0a00,stroke:#ff6d00,color:#ffe0b2
-    classDef health fill:#1b0000,stroke:#f44336,color:#ffcdd2
-    classDef error fill:#3e0000,stroke:#d32f2f,color:#ffcdd2
-    classDef warmboot fill:#0a1929,stroke:#29b6f6,color:#b3e5fc
-    classDef thread fill:#1a237e,stroke:#5c6bc0,color:#e8eaf6
-    classDef heartbeat fill:#1b2a1b,stroke:#66bb6a,color:#c8e6c9
-    classDef flow fill:#212121,stroke:#616161,color:#f5f5f5
-
+    
     %% ================= CLIENT A =================
     subgraph CA [Client A - Electron App]
         direction TB
@@ -37,7 +22,7 @@ graph TD
         CURSOR_A -- "Đóng gói CURSOR packet" --> PROTO_A
         PROTO_A --> CRYPTO_A --> SOCK_A
     end
-
+    style CA fill:#ffffcc,stroke:#999900,stroke-width:2px
     %% ================= CLIENT B =================
     subgraph CB [Client B - Electron App]
         direction TB
@@ -49,7 +34,7 @@ graph TD
         SOCK_B --> SYNC_B --> UI_B
         SOCK_B --> CURSOR_B --> UI_B
     end
-
+    style CB fill:#ffffcc,stroke:#999900,stroke-width:2px
     SOCK_A -- "Raw TCP persistent\nKhông phải HTTP Request" --> GATEWAY
     SOCK_B -- "Raw TCP persistent" --> GATEWAY
 
@@ -68,7 +53,7 @@ graph TD
         AUTH -- "Sai token" --> DROP1((Đóng kết nối TCP\ngửi ERR packet)):::error
         RATE -- "Quá giới hạn" --> DROP2((Gửi ERR 0x00\nRATE_LIMIT)):::error
     end
-
+    style MIDDLEWARE fill:#99ffff,stroke:#0066cc,stroke-width:2px,color:#000
     %% ================= DATABASE =================
     subgraph DATABASE [Lớp Database & Storage]
         direction LR
@@ -78,7 +63,7 @@ graph TD
 
         REDIS -- "GỬI INFO CỦA GLOBAL POOL" --> ROUTER
     end
-
+    style DATABASE fill:#a6c6ff,stroke:#0166dc,stroke-width:2px,color:#000
     %% ================= COLLAB SERVER =================
     subgraph COLLAB [Collab Server - Đồng bộ code real-time]
         direction TB
@@ -90,7 +75,7 @@ graph TD
         ROOM --> OT_ENGINE --> BROADCAST
         ROOM --> PRESENCE --> BROADCAST
     end
-
+    style COLLAB fill:#00a7b0,stroke:#0166dc,stroke-width:2px,color:#000
     %% ================= EXEC CLUSTER =================
     subgraph BACKEND [Execution Server Cluster]
         subgraph S1 [Server Node 1 ]
@@ -102,7 +87,7 @@ graph TD
                 direction LR
                 BOOT_CMD["docker run -d\n--read-only\n--tmpfs /workspace:rw,size=32m\n--memory=100m\n--cpus=0.5\n--network=none\n--user=sandbox_user\nimage:latest\n→ Không spawn lại mỗi request\n→ Chạy 1 lần - sống mãi"]:::warmboot
             end
-
+            style WARM_BOOT fill:#f073c8
             subgraph POOL [🏊 Global Container Pool - Dùng chung - Không gắn với Room]
                 direction TB
                 POOL_MGR["Pool Manager\nDuy trì sẵn MinPool=2 MaxPool=10 container\nBất kỳ user nào cũng bốc được\nKhông gắn chết với Room hay User"]:::pool
@@ -133,13 +118,9 @@ graph TD
                 HEALTH -. "Ping 5s" .-> CTR3
                 HEALTH -- "Container DEAD\nKill + Spawn mới thay thế" --> CTRN
             end
-
+            style POOL fill:#7396f0
             EXEC_FLOW["📋 Luồng mỗi RUN request\n① Dispatcher chọn container IDLE trong pool\n② Push code vào /workspace qua docker exec stdin\n③ Chạy: docker exec ctr python /workspace/main.py\n④ Stream stdout/stderr về từng dòng real-time\n⑤ Chạy xong → Virgin Reset dưới 50ms\n⑥ Container về IDLE - trả về Global Pool\nKhông kill container - Không tạo container mới"]:::flow
-
-            
-
             THREAD_POOL["🧵 worker_threads\nMỗi container đang BUSY\n= 1 thread theo dõi riêng\nStream stdout về Gateway\nKhông block lẫn nhau"]:::thread
-
             TCP_S1 --> PROTO_S1 --> DISPATCHER
             WARM_BOOT -- "Server start\nPre-warm pool 1 lần" --> POOL_MGR
             DISPATCHER --> THREAD_POOL
@@ -167,7 +148,9 @@ graph TD
             HEARTBEATN["📡 TCP Heartbeat Client\nTự kết nối vào S1:4000\nGửi CPU/RAM load mỗi 1 giây"]:::heartbeat
             TCP_SN --> POOL_MGRN --> THREAD_POOLN
         end
-
+        style S1 fill:#63d4d2,stroke:#333,stroke-width:2px
+        style S2 fill:#63d4d2,stroke:#333,stroke-width:2px
+        style SN fill:#63d4d2,stroke:#333,stroke-width:2px
         HEARTBEAT_SVR <-. "TCP :4000\nHeartbeat mỗi 1s\nJob Forward" .-> HEARTBEAT2
         HEARTBEAT_SVR <-. "TCP :4000\nHeartbeat mỗi 1s\nJob Forward" .-> HEARTBEAT1
         HEARTBEAT_SVR <-. "TCP :4000\nHeartbeat mỗi 1s\nJob Forward" .-> HEARTBEATN
