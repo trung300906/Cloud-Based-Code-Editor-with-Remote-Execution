@@ -8,7 +8,7 @@ graph TD
     subgraph CA [Client A - Electron App]
         direction TB
         UI_A["Monaco Editor\nChỉ hiển thị & nhận phím gõ\nKhông compile, không chạy gì cả"]:::client
-        SESSION_A[(Session Storage\nJWT / Room ID / File State)]:::client
+        SESSION_A[(Session Storage\nJWT / Room ID / File State TEMP IN CLIENT)]:::client
         SYNC_A["🔄 OT Client\nTính diff từng ký tự\nGửi thao tác - không gửi cả file"]:::client
         CURSOR_A["👁 Presence Client\nVị trí con trỏ của A\nThấy cursor B đang ở đâu"]:::client
         PROTO_A["📦 Protocol Builder\nCustom Packet\n[4B LEN][1B TYPE][PAYLOAD]\nTYPE: AUTH=0x01 EDIT=0x02\nRUN=0x03 CURSOR=0x04 CHAT=0x05"]:::client
