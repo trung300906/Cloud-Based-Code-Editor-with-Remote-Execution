@@ -6,18 +6,18 @@ const { PassThrough } = require('stream');
 const { MasterPoolManager } = require('./PoolManager.js');
 const HeartbeatWorker       = require('./HearthbeatWorker.js');
 
-// ─── Binary Frame Protocol ──────────────────────────────────────
-// Wire format:  [4B payload-length BE] [1B type] [payload …]
-// Payload:      [4B reqId-length BE] [reqId UTF-8] [body …]
-//
-//  Type   Dir               Body
-//  0x01   Gateway→Worker    source code (UTF-8)
-//  0x02   Worker→Gateway    stdout chunk
-//  0x03   Worker→Gateway    stderr chunk
-//  0x04   Worker→Gateway    1 byte exit-code
-//  0x05   Worker→Gateway    error message (UTF-8)
+// ─── ĐÃ ĐỒNG BỘ TỪ ĐIỂN TYPE VỚI GATEWAY ────────────────────────
+const TYPE = {
+    ERROR:  0x00,
+    AUTH:   0x01,
+    EDIT:   0x02,
+    RUN:    0x03,
+    CURSOR: 0x04,
+    CHAT:   0x05,
+    RESULT: 0x06,
+    PING:   0xFF
+};
 
-const FRAME = { EXEC_REQ: 0x01, STDOUT: 0x02, STDERR: 0x03, EXIT: 0x04, ERROR: 0x05 };
 const MAX_FRAME_BYTES = 4 * 1024 * 1024;
 
 function buildFrame(type, requestId, data) {
@@ -139,7 +139,6 @@ async function main() {
 
     const pendingRequests = new Map();
 
-    // ── 1. Quản đốc bãi xe (PoolManager) ────────────────────────
     console.log('[WorkerNode] Booting PoolManager…');
     const pool = new MasterPoolManager({
         minPoolSize: Number(process.env.MIN_POOL || 2),
@@ -148,7 +147,7 @@ async function main() {
             const rid  = item.payload.job.id;
             const sock = pendingRequests.get(rid);
             if (sock?.writable) {
-                sock.write(buildFrame(FRAME.ERROR, rid, 'queue timeout'));
+                sock.write(buildFrame(TYPE.ERROR, rid, 'queue timeout')); // SỬA: TYPE.ERROR
             }
             pendingRequests.delete(rid);
         },
@@ -160,7 +159,6 @@ async function main() {
     await pool.init();
     console.log('[WorkerNode] Pool ready:', pool.stats());
 
-    // ── 2. Nhân viên báo cáo (HeartbeatWorker) ──────────────────
     const heartbeat = new HeartbeatWorker({
         gatewayHost: GATEWAY_HOST,
         gatewayPort: GATEWAY_PORT,
@@ -169,8 +167,6 @@ async function main() {
         poolManager: pool,
     });
     heartbeat.start();
-
-    // ── 3. Cô lễ tân (TCP Worker Server) ────────────────────────
 
     function handleExec(socket, requestId, code) {
         pendingRequests.set(requestId, socket);
@@ -181,17 +177,17 @@ async function main() {
 
                 const exitCode = await runCodeStreaming(
                     pool.docker, container.id,
-                    (chunk) => { if (socket.writable) socket.write(buildFrame(FRAME.STDOUT, requestId, chunk)); },
-                    (chunk) => { if (socket.writable) socket.write(buildFrame(FRAME.STDERR, requestId, chunk)); },
+                    (chunk) => { if (socket.writable) socket.write(buildFrame(TYPE.RESULT, requestId, chunk)); }, // SỬA: TYPE.RESULT
+                    (chunk) => { if (socket.writable) socket.write(buildFrame(TYPE.RESULT, requestId, chunk)); }, // SỬA: TYPE.RESULT
                 );
 
                 if (socket.writable) {
-                    socket.write(buildFrame(FRAME.EXIT, requestId, Buffer.from([exitCode ?? 1])));
+                    socket.write(buildFrame(TYPE.RESULT, requestId, Buffer.from(`\n[Process Exited: ${exitCode ?? 1}]`))); // SỬA: TYPE.RESULT
                 }
                 return { exitCode };
             } catch (err) {
                 if (socket.writable) {
-                    socket.write(buildFrame(FRAME.ERROR, requestId, err.message || 'internal error'));
+                    socket.write(buildFrame(TYPE.ERROR, requestId, err.message || 'internal error')); // SỬA: TYPE.ERROR
                 }
                 return { exitCode: -1, error: err.message };
             } finally {
@@ -201,7 +197,7 @@ async function main() {
             console.error(`[WorkerNode] dispatch failed req=${requestId}:`, err.message || err);
             const sock = pendingRequests.get(requestId);
             if (sock?.writable) {
-                sock.write(buildFrame(FRAME.ERROR, requestId, err.message || 'dispatch failed'));
+                sock.write(buildFrame(TYPE.ERROR, requestId, err.message || 'dispatch failed')); // SỬA: TYPE.ERROR
             }
             pendingRequests.delete(requestId);
         });
@@ -213,7 +209,7 @@ async function main() {
 
         const parser = new FrameParser(
             (type, payload) => {
-                if (type !== FRAME.EXEC_REQ) return;
+                if (type !== TYPE.RUN) return; // SỬA QUAN TRỌNG: Lắng nghe TYPE.RUN thay vì EXEC_REQ
                 const parsed = parseFramePayload(payload);
                 if (!parsed) return;
                 handleExec(socket, parsed.requestId, parsed.body.toString('utf8'));
@@ -245,7 +241,6 @@ async function main() {
         console.log(`[WorkerNode] Node ID: ${NODE_ID}`);
     });
 
-    // ── Graceful shutdown ────────────────────────────────────────
     let shuttingDown = false;
     async function shutdown(signal) {
         if (shuttingDown) return;

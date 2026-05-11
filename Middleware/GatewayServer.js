@@ -42,13 +42,14 @@ function _formatBytes(n) {
 
 // ─── ĐỊNH NGHĨA GIAO THỨC (PROTOCOL TYPES) ─────────────────────
 const TYPE = {
-  AUTH: 0x01, // Đăng nhập / Đăng ký
-  EDIT: 0x02, // Gõ code (Gửi sang Collab)
-  RUN: 0x03, // Chạy code (Gửi sang Worker)
-  CURSOR: 0x04, // Vị trí chuột
-  CHAT: 0x05, // Chat
-  RESULT: 0x06, // Kết quả từ Worker trả về
-  ERROR: 0x00, // Lỗi hệ thống / Rate Limit
+  ERR:  0x00,
+  AUTH:   0x01,
+  EDIT:   0x02,
+  RUN:    0x03,
+  CURSOR: 0x04,
+  CHAT:   0x05,
+  RESULT: 0x06,
+  PING:   0xFF
 };
 
 // ─── CÔNG CỤ ĐÓNG/MỞ GÓI (FRAME PARSER) ─────────────────────────
@@ -326,6 +327,9 @@ class GatewayServer {
 
         // 3. ROUTER BẺ LÁI GÓI TIN
         switch (type) {
+          case TYPE.PING:
+            clientSocket.write(buildFrame(TYPE.PING, "sys", '{"pong": "ok"}'));
+            break;
           case TYPE.RUN:
             this._routeToWorkerCluster(
               clientSocket,
