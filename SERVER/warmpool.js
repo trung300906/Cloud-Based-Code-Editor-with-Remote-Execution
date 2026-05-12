@@ -12,7 +12,7 @@ class WarmPoolBootstrapper {
 
     this.image =
       opts.image || process.env.SANDBOX_IMAGE || "ide-sandbox:latest";
-    this.poolSize = Number(opts.poolSize ?? process.env.MIN_POOL ?? 2);
+    this.poolSize = Number(opts.poolSize ?? process.env.MIN_POOL ?? 10);
     this.namePrefix =
       opts.namePrefix || process.env.POOL_NAME_PREFIX || "zera-sandbox";
     this.nodeId = opts.nodeId || process.env.NODE_ID || os.hostname();
@@ -438,7 +438,7 @@ module.exports = { WarmPoolBootstrapper };
 if (require.main === module) {
   (async () => {
     const warmPool = new WarmPoolBootstrapper({
-      poolSize: Number(process.env.MIN_POOL || 2),
+      poolSize: Number(process.env.MIN_POOL || 10),
       image: process.env.SANDBOX_IMAGE || "ide-sandbox:latest",
     });
 
