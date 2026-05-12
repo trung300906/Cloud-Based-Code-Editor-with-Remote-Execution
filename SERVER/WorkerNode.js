@@ -141,7 +141,7 @@ async function main() {
 
     console.log('[WorkerNode] Booting PoolManager…');
     const pool = new MasterPoolManager({
-        minPoolSize: Number(process.env.MIN_POOL || 2),
+        minPoolSize: Number(process.env.MIN_POOL || 10),
         maxPoolSize: Number(process.env.MAX_POOL || 100),
         onQueueExpire(item) {
             const rid  = item.payload.job.id;
