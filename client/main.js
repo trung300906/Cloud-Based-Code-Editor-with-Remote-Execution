@@ -17,7 +17,7 @@ function createWindow() {
     width: 900,
     height: 650,
     webPreferences: { preload: path.join(__dirname, "preload.js") },
-    icon: path.join(__dirname, "bleh.jpg"),
+    icon: path.join(__dirname, "logo.png"),
   });
   mainWindow.loadFile("index.html");
   Menu.setApplicationMenu(null);
