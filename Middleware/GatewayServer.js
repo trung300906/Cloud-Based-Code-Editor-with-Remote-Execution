@@ -1,9 +1,19 @@
 "use strict";
 
 const net = require("net");
+const { createClient } = require("redis");
 const HeartbeatServer = require("./HearthbeatServer.js");
 const { decryptPayload, verifyJwt } = require("./cryptoUtils.js");
 const { startAuthService } = require("./auth-service/server.js");
+
+// ─── REDIS CLIENT ──────────────────────────────────────────────
+const redisClient = createClient({
+  url: process.env.REDIS_URL || "redis://127.0.0.1:6379",
+});
+
+redisClient.on("error", (err) => {
+  _log("error", `[Gateway] Redis client error: ${err.message || err}`);
+});
 
 // ─── LOGGING (giảm spam) ───────────────────────────────────────
 // Levels: error < warn < info < debug
@@ -44,14 +54,14 @@ function _formatBytes(n) {
 
 // ─── ĐỊNH NGHĨA GIAO THỨC (PROTOCOL TYPES) ─────────────────────
 const TYPE = {
-  ERR:  0x00,
-  AUTH:   0x01,
-  EDIT:   0x02,
-  RUN:    0x03,
+  ERR: 0x00,
+  AUTH: 0x01,
+  EDIT: 0x02,
+  RUN: 0x03,
   CURSOR: 0x04,
-  CHAT:   0x05,
+  CHAT: 0x05,
   RESULT: 0x06,
-  PING:   0xFF
+  PING: 0xff,
 };
 
 const REQUIRE_AUTH = String(process.env.GATEWAY_REQUIRE_AUTH ?? "1") !== "0";
@@ -156,8 +166,16 @@ class GatewayServer {
     this._healthWasBad = false;
   }
 
-  start() {
+  async start() {
     this.heartbeat.start();
+
+    // Kết nối Redis; nếu lỗi thì log nhưng không crash Gateway
+    try {
+      await redisClient.connect();
+      _log("info", "[Gateway] Redis connected");
+    } catch (err) {
+      _log("error", `[Gateway] Redis connection failed: ${err.message || err}`);
+    }
 
     this._startHealthMonitor();
 
@@ -372,41 +390,142 @@ class GatewayServer {
 
         const { requestId, bodyBuf, bodyText } = parsed;
 
-        // 4. AUTH
+        // 4. AUTH — xử lý bất đồng bộ với Redis để tránh unhandled rejection
         if (type === TYPE.AUTH) {
-          const authData = safeJsonParse(bodyText);
-          const token = authData?.token;
-          if (!token) {
-            clientSocket.write(buildFrame(TYPE.ERR, requestId || "auth", "Missing token"));
-            clientSocket.destroy();
-            return;
-          }
+          (async () => {
+            try {
+              const authData = safeJsonParse(bodyText);
+              const token = authData?.token;
+              if (!token) {
+                if (!clientSocket.destroyed) {
+                  clientSocket.write(
+                    buildFrame(TYPE.ERR, requestId || "auth", "Missing token"),
+                  );
+                  clientSocket.destroy();
+                }
+                return;
+              }
 
-          const check = verifyJwt(token);
-          if (!check.ok) {
-            clientSocket.write(buildFrame(TYPE.ERR, requestId || "auth", `Auth failed: ${check.reason}`));
-            clientSocket.destroy();
-            return;
-          }
+              // b. Verify JWT signature locally
+              const check = verifyJwt(token);
+              if (!check.ok) {
+                if (!clientSocket.destroyed) {
+                  clientSocket.write(
+                    buildFrame(
+                      TYPE.ERR,
+                      requestId || "auth",
+                      `Auth failed: ${check.reason}`,
+                    ),
+                  );
+                  clientSocket.destroy();
+                }
+                return;
+              }
 
-          session.authed = true;
-          session.token = token;
-          session.roomId = typeof authData?.roomId === "string" ? authData.roomId : "";
-          session.fileState = authData?.fileState && typeof authData.fileState === "object"
-            ? authData.fileState
-            : {};
+              // c. Extract userId from decoded payload
+              const userId = check.payload?.sub;
+              if (!userId) {
+                if (!clientSocket.destroyed) {
+                  clientSocket.write(
+                    buildFrame(
+                      TYPE.ERR,
+                      requestId || "auth",
+                      "Invalid token payload",
+                    ),
+                  );
+                  clientSocket.destroy();
+                }
+                return;
+              }
 
-          const ack = {
-            ok: true,
-            roomId: session.roomId,
-            sub: check.payload?.sub || "",
-          };
-          clientSocket.write(buildFrame(TYPE.AUTH, requestId || "auth", JSON.stringify(ack)));
+              // d. Query Redis global session
+              let storedToken;
+              try {
+                storedToken = await redisClient.get(`user:session:${userId}`);
+              } catch (redisErr) {
+                _log(
+                  "error",
+                  `[Gateway] Redis session lookup failed for user ${userId}: ${redisErr.message}`,
+                );
+                if (!clientSocket.destroyed) {
+                  clientSocket.write(
+                    buildFrame(
+                      TYPE.ERR,
+                      requestId || "auth",
+                      "Session verification unavailable",
+                    ),
+                  );
+                  clientSocket.destroy();
+                }
+                return;
+              }
+
+              // e. Security check: session revoked or token mismatch
+              if (!storedToken || storedToken !== token) {
+                if (!clientSocket.destroyed) {
+                  clientSocket.write(
+                    buildFrame(
+                      TYPE.ERR,
+                      requestId || "auth",
+                      "Session revoked or invalid",
+                    ),
+                  );
+                  clientSocket.destroy();
+                }
+                return;
+              }
+
+              // f. Accept connection
+              session.authed = true;
+              session.token = token;
+              session.roomId =
+                typeof authData?.roomId === "string" ? authData.roomId : "";
+              session.fileState =
+                authData?.fileState && typeof authData.fileState === "object"
+                  ? authData.fileState
+                  : {};
+
+              clientSocket.isAuthenticated = true;
+              clientSocket.userId = userId;
+
+              const ack = {
+                ok: true,
+                roomId: session.roomId,
+                sub: userId,
+              };
+              if (!clientSocket.destroyed) {
+                clientSocket.write(
+                  buildFrame(
+                    TYPE.AUTH,
+                    requestId || "auth",
+                    JSON.stringify(ack),
+                  ),
+                );
+              }
+            } catch (err) {
+              _log(
+                "error",
+                `[Gateway] AUTH handler error: ${err.message || err}`,
+              );
+              if (!clientSocket.destroyed) {
+                clientSocket.write(
+                  buildFrame(
+                    TYPE.ERR,
+                    requestId || "auth",
+                    "Internal auth error",
+                  ),
+                );
+                clientSocket.destroy();
+              }
+            }
+          })();
           return;
         }
 
         if (REQUIRE_AUTH && !session.authed) {
-          clientSocket.write(buildFrame(TYPE.ERR, requestId || "gateway", "Unauthorized"));
+          clientSocket.write(
+            buildFrame(TYPE.ERR, requestId || "gateway", "Unauthorized"),
+          );
           return;
         }
 
@@ -474,11 +593,7 @@ class GatewayServer {
     if (!bestWorker) {
       _log("warn", `[Router] ⚠️ Không có worker rảnh — từ chối ${requestId}`);
       clientSocket.write(
-        buildFrame(
-          TYPE.ERR,
-          requestId,
-          "Hệ thống đang bận, vui lòng thử lại.",
-        ),
+        buildFrame(TYPE.ERR, requestId, "Hệ thống đang bận, vui lòng thử lại."),
       );
       return;
     }
@@ -517,14 +632,13 @@ class GatewayServer {
 
 // CHẠY CHƯƠNG TRÌNH
 if (require.main === module) {
-  if (START_AUTH_SERVICE) {
-    startAuthService().catch((err) => {
-      console.error(
-        "[Gateway] Auth service failed:",
-        err?.message || err,
-      );
-    });
-  }
-  const gateway = new GatewayServer(8080);
-  gateway.start();
+  (async () => {
+    if (START_AUTH_SERVICE) {
+      startAuthService().catch((err) => {
+        console.error("[Gateway] Auth service failed:", err?.message || err);
+      });
+    }
+    const gateway = new GatewayServer(8080);
+    await gateway.start();
+  })();
 }
