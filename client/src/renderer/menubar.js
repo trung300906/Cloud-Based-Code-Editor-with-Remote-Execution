@@ -6,6 +6,12 @@ import { state, LS } from "./state.js";
 import { getFocusedPane, splitEditor, removePane } from "./pane.js";
 import { openOrActivateTab } from "./tab.js";
 import { setEditorLanguage } from "./monaco-init.js";
+import {
+  DEFAULT_EDITOR_SETTINGS,
+  loadEditorSettings,
+  saveEditorSettings,
+  applyEditorSettingsToAll,
+} from "./editor-settings.js";
 
 // ---- Save file hiện tại ----
 export function doSave() {
@@ -155,8 +161,66 @@ export function initCustomMenubar() {
     });
   });
 
+  const userBtn = document.getElementById("user-btn");
+  const settingsBtn = document.getElementById("settings-btn");
+  const userPopover = document.getElementById("user-popover");
+  const settingsPopover = document.getElementById("settings-popover");
+
+  const popoverEntries = [
+    { key: "user", btn: userBtn, popover: userPopover },
+    { key: "settings", btn: settingsBtn, popover: settingsPopover },
+  ].filter((entry) => entry.btn && entry.popover);
+
+  function closePopovers() {
+    popoverEntries.forEach((entry) => {
+      entry.popover.classList.remove("open");
+      entry.popover.setAttribute("aria-hidden", "true");
+      entry.btn.classList.remove("is-active");
+    });
+  }
+
+  function positionPopover(popover, anchor) {
+    const barRect = menubar.getBoundingClientRect();
+    const anchorRect = anchor.getBoundingClientRect();
+    const width = popover.getBoundingClientRect().width || 320;
+    let left = anchorRect.right - barRect.left - width;
+    left = Math.max(8, Math.min(left, barRect.width - width - 8));
+    popover.style.left = `${Math.round(left)}px`;
+  }
+
+  function openPopover(entry) {
+    closeAllMenus();
+    closePopovers();
+    positionPopover(entry.popover, entry.btn);
+    entry.popover.classList.add("open");
+    entry.popover.setAttribute("aria-hidden", "false");
+    entry.btn.classList.add("is-active");
+  }
+
+  function togglePopover(entry) {
+    if (entry.popover.classList.contains("open")) {
+      closePopovers();
+    } else {
+      openPopover(entry);
+    }
+  }
+
+  popoverEntries.forEach((entry) => {
+    entry.btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      togglePopover(entry);
+    });
+    entry.popover.addEventListener("click", (e) => e.stopPropagation());
+    entry.popover
+      .querySelectorAll("[data-popover-close]")
+      .forEach((btn) => btn.addEventListener("click", closePopovers));
+  });
+
   document.addEventListener("click", (e) => {
     if (!e.target.closest(".menu-item")) closeAllMenus();
+    if (!e.target.closest(".menubar-popover") && !e.target.closest(".menubar-chip")) {
+      closePopovers();
+    }
   });
 
   menubar.querySelectorAll(".menu-entry").forEach((entry) => {
@@ -168,7 +232,10 @@ export function initCustomMenubar() {
   });
 
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && state.openMenuItem) closeAllMenus();
+    if (e.key === "Escape") {
+      if (state.openMenuItem) closeAllMenus();
+      closePopovers();
+    }
   });
 
   // ---- Theme toggle ----
@@ -200,5 +267,343 @@ export function initCustomMenubar() {
     langSel.addEventListener("change", (e) =>
       setEditorLanguage(e.target.value),
     );
+  }
+
+  const AUTH_URL = "http://100.124.23.95:3000/login";
+  const LOGOUT_URL = "http://100.124.23.95:3000/logout";
+
+  function loadUserProfile() {
+    try {
+      const raw = localStorage.getItem(LS.USER_PROFILE);
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function saveUserProfile(profile) {
+    try {
+      localStorage.setItem(LS.USER_PROFILE, JSON.stringify(profile));
+    } catch (_) {}
+  }
+
+  if (userPopover) {
+    const userWrapper = userPopover.querySelector("[data-user-wrapper]");
+    const usernameInput = userPopover.querySelector("#login-username");
+    const passwordInput = userPopover.querySelector("#login-password");
+    const roomInput = userPopover.querySelector("#login-roomid");
+    const loginStatus = userPopover.querySelector("#login-status");
+    const loginBtn = userPopover.querySelector("#login-btn");
+    const loginClearBtn = userPopover.querySelector("#login-clear-btn");
+    const logoutBtn = userPopover.querySelector("#logout-btn");
+    const editProfileBtn = userPopover.querySelector("#edit-profile-btn");
+    const copyTokenBtn = userPopover.querySelector("#copy-token-btn");
+    const userAvatar = userPopover.querySelector("#user-avatar");
+    const userName = userPopover.querySelector("#user-name");
+    const userSub = userPopover.querySelector("#user-sub");
+    const userRoom = userPopover.querySelector("#user-room");
+    const userToken = userPopover.querySelector("#user-token");
+
+    function renderUserProfile(profile) {
+      const safeProfile = profile || {};
+      const isAuth = Boolean(safeProfile.loggedIn);
+      const displayName = safeProfile.username || "guest";
+      const roomId = safeProfile.roomId || "default";
+      const token = safeProfile.token || "";
+
+      if (userWrapper) userWrapper.classList.toggle("is-auth", isAuth);
+      if (usernameInput) usernameInput.value = displayName;
+      if (passwordInput) passwordInput.value = "";
+      if (roomInput) roomInput.value = roomId;
+      if (userAvatar) userAvatar.textContent = displayName.slice(0, 2).toUpperCase();
+      if (userName) userName.textContent = displayName;
+      if (userSub) userSub.textContent = isAuth ? "signed in" : "guest";
+      if (userRoom) userRoom.textContent = roomId;
+      if (userToken) {
+        userToken.textContent = token;
+        userToken.title = token;
+      }
+      if (loginStatus) {
+        loginStatus.textContent = "";
+        loginStatus.classList.remove("is-error", "is-ok");
+      }
+    }
+
+    let currentProfile = loadUserProfile();
+    renderUserProfile(currentProfile);
+
+    if (loginBtn) {
+      loginBtn.addEventListener("click", async () => {
+        const username = usernameInput?.value.trim();
+        const password = passwordInput?.value || "";
+        const roomId = roomInput?.value.trim() || "default";
+
+        if (!username || !password) {
+          if (loginStatus) {
+            loginStatus.textContent = "Missing username or password";
+            loginStatus.classList.add("is-error");
+            loginStatus.classList.remove("is-ok");
+          }
+          return;
+        }
+
+        if (loginStatus) {
+          loginStatus.textContent = "Logging in...";
+          loginStatus.classList.remove("is-error", "is-ok");
+        }
+
+        try {
+          const response = await fetch(AUTH_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password }),
+          });
+
+          const payload = await response.json().catch(() => ({}));
+          if (!response.ok || !payload?.token) {
+            const message = payload?.error || `Login failed (${response.status})`;
+            if (loginStatus) {
+              loginStatus.textContent = message;
+              loginStatus.classList.add("is-error");
+              loginStatus.classList.remove("is-ok");
+            }
+            return;
+          }
+
+          currentProfile = {
+            username,
+            roomId,
+            token: payload.token,
+            loggedIn: true,
+            lastLogin: Date.now(),
+          };
+          saveUserProfile(currentProfile);
+          renderUserProfile(currentProfile);
+
+          if (loginStatus) {
+            loginStatus.textContent = "Login success";
+            loginStatus.classList.add("is-ok");
+            loginStatus.classList.remove("is-error");
+          }
+
+          if (window.electronAPI?.loginSuccess) {
+            window.electronAPI.loginSuccess(payload.token);
+          }
+        } catch (err) {
+          if (loginStatus) {
+            loginStatus.textContent = err?.message || "Network error";
+            loginStatus.classList.add("is-error");
+            loginStatus.classList.remove("is-ok");
+          }
+        }
+      });
+    }
+
+    if (loginClearBtn) {
+      loginClearBtn.addEventListener("click", () => {
+        if (usernameInput) usernameInput.value = "";
+        if (passwordInput) passwordInput.value = "";
+        if (roomInput) roomInput.value = "";
+        if (loginStatus) {
+          loginStatus.textContent = "";
+          loginStatus.classList.remove("is-error", "is-ok");
+        }
+      });
+    }
+
+    async function performLogout() {
+      const token = currentProfile?.token || "";
+      if (loginStatus) {
+        loginStatus.textContent = token ? "Logging out..." : "";
+        loginStatus.classList.remove("is-error", "is-ok");
+      }
+
+      if (token) {
+        try {
+          const response = await fetch(LOGOUT_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token }),
+          });
+          if (!response.ok) {
+            const payload = await response.json().catch(() => ({}));
+            const message = payload?.error || `Logout failed (${response.status})`;
+            if (loginStatus) {
+              loginStatus.textContent = message;
+              loginStatus.classList.add("is-error");
+              loginStatus.classList.remove("is-ok");
+            }
+            return;
+          }
+        } catch (err) {
+          if (loginStatus) {
+            loginStatus.textContent = err?.message || "Network error";
+            loginStatus.classList.add("is-error");
+            loginStatus.classList.remove("is-ok");
+          }
+          return;
+        }
+      }
+
+      currentProfile = {
+        username: currentProfile?.username || "",
+        roomId: currentProfile?.roomId || "default",
+        token: "",
+        loggedIn: false,
+        lastLogin: currentProfile?.lastLogin || null,
+      };
+      saveUserProfile(currentProfile);
+      renderUserProfile(currentProfile);
+      if (loginStatus) {
+        loginStatus.textContent = "Logged out";
+        loginStatus.classList.add("is-ok");
+        loginStatus.classList.remove("is-error");
+      }
+    }
+
+    if (logoutBtn) {
+      logoutBtn.addEventListener("click", () => {
+        performLogout();
+      });
+    }
+
+    if (editProfileBtn) {
+      editProfileBtn.addEventListener("click", () => {
+        performLogout();
+      });
+    }
+
+    if (copyTokenBtn && userToken) {
+      copyTokenBtn.addEventListener("click", async () => {
+        const token = userToken.textContent || "";
+        if (!token) return;
+        try {
+          await navigator.clipboard.writeText(token);
+        } catch (_) {
+          const tmp = document.createElement("textarea");
+          tmp.value = token;
+          document.body.appendChild(tmp);
+          tmp.select();
+          document.execCommand("copy");
+          tmp.remove();
+        }
+      });
+    }
+  }
+
+  if (settingsPopover) {
+    let settings = loadEditorSettings();
+
+    const fontSizeInput = settingsPopover.querySelector("#setting-font-size");
+    const fontSizeValue = settingsPopover.querySelector(
+      "#setting-font-size-value",
+    );
+    const tabSizeInput = settingsPopover.querySelector("#setting-tab-size");
+    const insertSpacesInput = settingsPopover.querySelector(
+      "#setting-insert-spaces",
+    );
+    const wordWrapInput = settingsPopover.querySelector("#setting-word-wrap");
+    const minimapInput = settingsPopover.querySelector("#setting-minimap");
+    const lineNumbersInput = settingsPopover.querySelector(
+      "#setting-line-numbers",
+    );
+    const smoothScrollInput = settingsPopover.querySelector(
+      "#setting-smooth-scroll",
+    );
+    const whitespaceInput = settingsPopover.querySelector(
+      "#setting-whitespace",
+    );
+    const settingsResetBtn = settingsPopover.querySelector(
+      "#settings-reset-btn",
+    );
+    const settingsCloseBtn = settingsPopover.querySelector(
+      "#settings-close-btn",
+    );
+
+    function syncSettingsForm(next) {
+      const current = next || settings;
+      if (fontSizeInput) fontSizeInput.value = String(current.fontSize);
+      if (fontSizeValue) fontSizeValue.textContent = String(current.fontSize);
+      if (tabSizeInput) tabSizeInput.value = String(current.tabSize);
+      if (insertSpacesInput) insertSpacesInput.checked = current.insertSpaces;
+      if (wordWrapInput) wordWrapInput.checked = current.wordWrap === "on";
+      if (minimapInput) minimapInput.checked = current.minimap;
+      if (lineNumbersInput) lineNumbersInput.checked = current.lineNumbers === "on";
+      if (smoothScrollInput) smoothScrollInput.checked = current.smoothScrolling;
+      if (whitespaceInput) whitespaceInput.value = current.renderWhitespace;
+    }
+
+    function updateSettings(next) {
+      settings = { ...settings, ...next };
+      saveEditorSettings(settings);
+      applyEditorSettingsToAll(settings);
+    }
+
+    syncSettingsForm(settings);
+    applyEditorSettingsToAll(settings);
+
+    if (fontSizeInput) {
+      fontSizeInput.addEventListener("input", () => {
+        const size = Number(fontSizeInput.value);
+        if (fontSizeValue) fontSizeValue.textContent = String(size);
+        updateSettings({ fontSize: size });
+      });
+    }
+
+    if (tabSizeInput) {
+      tabSizeInput.addEventListener("change", () => {
+        updateSettings({ tabSize: Number(tabSizeInput.value) });
+      });
+    }
+
+    if (insertSpacesInput) {
+      insertSpacesInput.addEventListener("change", () => {
+        updateSettings({ insertSpaces: insertSpacesInput.checked });
+      });
+    }
+
+    if (wordWrapInput) {
+      wordWrapInput.addEventListener("change", () => {
+        updateSettings({ wordWrap: wordWrapInput.checked ? "on" : "off" });
+      });
+    }
+
+    if (minimapInput) {
+      minimapInput.addEventListener("change", () => {
+        updateSettings({ minimap: minimapInput.checked });
+      });
+    }
+
+    if (lineNumbersInput) {
+      lineNumbersInput.addEventListener("change", () => {
+        updateSettings({ lineNumbers: lineNumbersInput.checked ? "on" : "off" });
+      });
+    }
+
+    if (smoothScrollInput) {
+      smoothScrollInput.addEventListener("change", () => {
+        updateSettings({ smoothScrolling: smoothScrollInput.checked });
+      });
+    }
+
+    if (whitespaceInput) {
+      whitespaceInput.addEventListener("change", () => {
+        updateSettings({ renderWhitespace: whitespaceInput.value });
+      });
+    }
+
+    if (settingsResetBtn) {
+      settingsResetBtn.addEventListener("click", () => {
+        settings = { ...DEFAULT_EDITOR_SETTINGS };
+        saveEditorSettings(settings);
+        syncSettingsForm(settings);
+        applyEditorSettingsToAll(settings);
+      });
+    }
+
+    if (settingsCloseBtn) {
+      settingsCloseBtn.addEventListener("click", () => closePopovers());
+    }
   }
 }

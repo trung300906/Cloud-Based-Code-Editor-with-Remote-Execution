@@ -2,6 +2,8 @@
 
 const net = require("net");
 const HeartbeatServer = require("./HearthbeatServer.js");
+const { decryptPayload, verifyJwt } = require("./cryptoUtils.js");
+const { startAuthService } = require("./auth-service/server.js");
 
 // ─── LOGGING (giảm spam) ───────────────────────────────────────
 // Levels: error < warn < info < debug
@@ -52,6 +54,10 @@ const TYPE = {
   PING:   0xFF
 };
 
+const REQUIRE_AUTH = String(process.env.GATEWAY_REQUIRE_AUTH ?? "1") !== "0";
+const START_AUTH_SERVICE =
+  String(process.env.GATEWAY_START_AUTH ?? "1") !== "0";
+
 // ─── CÔNG CỤ ĐÓNG/MỞ GÓI (FRAME PARSER) ─────────────────────────
 function buildFrame(type, requestId, data) {
   const idBuf = Buffer.from(requestId, "utf8");
@@ -65,6 +71,24 @@ function buildFrame(type, requestId, data) {
   header.writeUInt32BE(payload.length, 0);
   header[4] = type;
   return Buffer.concat([header, payload]);
+}
+
+function parsePayload(payload) {
+  if (!Buffer.isBuffer(payload) || payload.length < 4) return null;
+  const idLen = payload.readUInt32BE(0);
+  if (payload.length < 4 + idLen) return null;
+  const requestId = payload.subarray(4, 4 + idLen).toString("utf8");
+  const bodyBuf = payload.subarray(4 + idLen);
+  const bodyText = bodyBuf.toString("utf8");
+  return { requestId, bodyBuf, bodyText };
+}
+
+function safeJsonParse(text) {
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    return null;
+  }
 }
 
 class FrameParser {
@@ -303,6 +327,7 @@ class GatewayServer {
     // Mỗi IP có 1 rổ Token (Chứa tối đa 50 requests, hồi 10 req/s)
     const limiter = new RateLimiter(50, 10);
     let workerSocket = null; // Socket nối xuống Trạm cày (nếu gọi lệnh RUN)
+    const session = { authed: false, token: "", roomId: "", fileState: {} };
 
     // Throttle spam logs: tối đa 1 warn / 5s / client
     let lastSpamLogAt = 0;
@@ -317,24 +342,83 @@ class GatewayServer {
             _log("warn", `[Gateway] 🛑 SPAM BLOCK: ${clientId}`);
           }
           clientSocket.write(
-            buildFrame(TYPE.ERROR, "gateway", "Rate limit exceeded"),
+            buildFrame(TYPE.ERR, "gateway", "Rate limit exceeded"),
           );
           return;
         }
 
-        // 2. TODO: Khối AUTH (Giải mã AES và Check JWT ở đây)
-        // if (!this._verifyAuth(payload)) { clientSocket.write(ERROR); clientSocket.destroy(); return; }
+        // 2. PING luôn cho phép (không mã hóa)
+        if (type === TYPE.PING) {
+          clientSocket.write(buildFrame(TYPE.PING, "sys", '{"pong": "ok"}'));
+          return;
+        }
 
-        // 3. ROUTER BẺ LÁI GÓI TIN
+        // 3. Giải mã AES-256-GCM
+        let plainPayload;
+        try {
+          plainPayload = decryptPayload(payload);
+        } catch (err) {
+          _log("warn", `[Gateway] Decrypt failed: ${err.message}`);
+          clientSocket.write(buildFrame(TYPE.ERR, "gateway", "Decrypt failed"));
+          clientSocket.destroy();
+          return;
+        }
+
+        const parsed = parsePayload(plainPayload);
+        if (!parsed) {
+          clientSocket.write(buildFrame(TYPE.ERR, "gateway", "Bad payload"));
+          return;
+        }
+
+        const { requestId, bodyBuf, bodyText } = parsed;
+
+        // 4. AUTH
+        if (type === TYPE.AUTH) {
+          const authData = safeJsonParse(bodyText);
+          const token = authData?.token;
+          if (!token) {
+            clientSocket.write(buildFrame(TYPE.ERR, requestId || "auth", "Missing token"));
+            clientSocket.destroy();
+            return;
+          }
+
+          const check = verifyJwt(token);
+          if (!check.ok) {
+            clientSocket.write(buildFrame(TYPE.ERR, requestId || "auth", `Auth failed: ${check.reason}`));
+            clientSocket.destroy();
+            return;
+          }
+
+          session.authed = true;
+          session.token = token;
+          session.roomId = typeof authData?.roomId === "string" ? authData.roomId : "";
+          session.fileState = authData?.fileState && typeof authData.fileState === "object"
+            ? authData.fileState
+            : {};
+
+          const ack = {
+            ok: true,
+            roomId: session.roomId,
+            sub: check.payload?.sub || "",
+          };
+          clientSocket.write(buildFrame(TYPE.AUTH, requestId || "auth", JSON.stringify(ack)));
+          return;
+        }
+
+        if (REQUIRE_AUTH && !session.authed) {
+          clientSocket.write(buildFrame(TYPE.ERR, requestId || "gateway", "Unauthorized"));
+          return;
+        }
+
+        const plainFrame = buildFrame(type, requestId, bodyBuf);
+
+        // 5. ROUTER BẺ LÁI GÓI TIN
         switch (type) {
-          case TYPE.PING:
-            clientSocket.write(buildFrame(TYPE.PING, "sys", '{"pong": "ok"}'));
-            break;
           case TYPE.RUN:
             this._routeToWorkerCluster(
               clientSocket,
-              rawFrame,
-              payload,
+              plainFrame,
+              plainPayload,
               (sock) => (workerSocket = sock),
             );
             break;
@@ -391,7 +475,7 @@ class GatewayServer {
       _log("warn", `[Router] ⚠️ Không có worker rảnh — từ chối ${requestId}`);
       clientSocket.write(
         buildFrame(
-          TYPE.ERROR,
+          TYPE.ERR,
           requestId,
           "Hệ thống đang bận, vui lòng thử lại.",
         ),
@@ -425,7 +509,7 @@ class GatewayServer {
       );
       if (!clientSocket.destroyed)
         clientSocket.write(
-          buildFrame(TYPE.ERROR, requestId, "Lỗi Server Nội Bộ"),
+          buildFrame(TYPE.ERR, requestId, "Lỗi Server Nội Bộ"),
         );
     });
   }
@@ -433,6 +517,14 @@ class GatewayServer {
 
 // CHẠY CHƯƠNG TRÌNH
 if (require.main === module) {
+  if (START_AUTH_SERVICE) {
+    startAuthService().catch((err) => {
+      console.error(
+        "[Gateway] Auth service failed:",
+        err?.message || err,
+      );
+    });
+  }
   const gateway = new GatewayServer(8080);
   gateway.start();
 }

@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self' https://cdnjs.cloudflare.com; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src 'self' data: https://cdnjs.cloudflare.com; img-src 'self' data: blob:; object-src data: blob:; frame-src data: blob:;"
+      content="default-src 'self' https://cdnjs.cloudflare.com; connect-src 'self' http://100.124.23.95:3000; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdnjs.cloudflare.com; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src 'self' data: https://cdnjs.cloudflare.com; img-src 'self' data: blob:; object-src data: blob:; frame-src data: blob:;"
     />
     <link href="./styles.css" rel="stylesheet" />
     <title>CBCode</title>
@@ -130,7 +130,199 @@
         <select id="lang-select">
           <option value="cpp">C++</option>
         </select>
-        <button id="submit-btn">🟢 Submit Code</button>
+        <button id="submit-btn">🟢 Run Code</button>
+        <button id="user-btn" class="menubar-chip" title="User">US</button>
+        <button id="settings-btn" class="menubar-chip" title="Settings">ST</button>
+      </div>
+
+      <div
+        class="menubar-popover"
+        id="user-popover"
+        data-popover="user"
+        aria-hidden="true"
+      >
+        <div class="popover-header">
+          <div class="popover-title">User</div>
+          <button class="popover-close" data-popover-close type="button">
+            x
+          </button>
+        </div>
+        <div class="popover-body" data-user-wrapper>
+          <div class="user-panel user-guest" data-user-state="guest">
+            <label class="form-label" for="login-username">Username</label>
+            <input
+              class="form-input"
+              id="login-username"
+              type="text"
+              placeholder="guest"
+              autocomplete="off"
+            />
+            <label class="form-label" for="login-password">Password</label>
+            <input
+              class="form-input"
+              id="login-password"
+              type="password"
+              placeholder="your password"
+              autocomplete="current-password"
+            />
+            <label class="form-label" for="login-roomid">Room ID</label>
+            <input
+              class="form-input"
+              id="login-roomid"
+              type="text"
+              placeholder="default"
+              autocomplete="off"
+            />
+            <div class="login-status" id="login-status"></div>
+            <div class="popover-actions">
+              <button class="primary-btn" id="login-btn" type="button">
+                Login
+              </button>
+              <button class="ghost-btn" id="login-clear-btn" type="button">
+                Clear
+              </button>
+            </div>
+          </div>
+
+          <div class="user-panel user-auth" data-user-state="auth">
+            <div class="user-badge">
+              <div class="user-avatar" id="user-avatar">US</div>
+              <div class="user-meta">
+                <div class="user-name" id="user-name">guest</div>
+                <div class="user-sub" id="user-sub">signed in</div>
+              </div>
+            </div>
+            <div class="user-kv">
+              <div class="kv-row">
+                <span class="kv-key">Room</span>
+                <span class="kv-value" id="user-room">default</span>
+              </div>
+              <div class="kv-row">
+                <span class="kv-key">Token</span>
+                <span class="kv-value kv-token" id="user-token"></span>
+                <button
+                  class="ghost-btn mini-btn"
+                  id="copy-token-btn"
+                  type="button"
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+            <div class="popover-actions">
+              <button class="primary-btn" id="logout-btn" type="button">
+                Logout
+              </button>
+              <button class="ghost-btn" id="edit-profile-btn" type="button">
+                Edit
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div
+        class="menubar-popover"
+        id="settings-popover"
+        data-popover="settings"
+        aria-hidden="true"
+      >
+        <div class="popover-header">
+          <div class="popover-title">Settings</div>
+          <button class="popover-close" data-popover-close type="button">
+            x
+          </button>
+        </div>
+        <div class="popover-body">
+          <div class="settings-grid">
+            <div class="settings-row">
+              <label class="form-label" for="setting-font-size">Font size</label>
+              <div class="form-inline">
+                <input
+                  class="form-range"
+                  id="setting-font-size"
+                  type="range"
+                  min="10"
+                  max="24"
+                  step="1"
+                />
+                <span class="value-pill" id="setting-font-size-value">14</span>
+              </div>
+            </div>
+            <div class="settings-row">
+              <label class="form-label" for="setting-tab-size">Tab size</label>
+              <select class="form-input" id="setting-tab-size">
+                <option value="2">2</option>
+                <option value="4">4</option>
+                <option value="8">8</option>
+              </select>
+            </div>
+            <div class="settings-row">
+              <label class="form-label" for="setting-insert-spaces">
+                Insert spaces
+              </label>
+              <input
+                class="form-toggle"
+                id="setting-insert-spaces"
+                type="checkbox"
+              />
+            </div>
+            <div class="settings-row">
+              <label class="form-label" for="setting-word-wrap">Word wrap</label>
+              <input
+                class="form-toggle"
+                id="setting-word-wrap"
+                type="checkbox"
+              />
+            </div>
+            <div class="settings-row">
+              <label class="form-label" for="setting-minimap">Minimap</label>
+              <input
+                class="form-toggle"
+                id="setting-minimap"
+                type="checkbox"
+              />
+            </div>
+            <div class="settings-row">
+              <label class="form-label" for="setting-line-numbers">
+                Line numbers
+              </label>
+              <input
+                class="form-toggle"
+                id="setting-line-numbers"
+                type="checkbox"
+              />
+            </div>
+            <div class="settings-row">
+              <label class="form-label" for="setting-smooth-scroll">
+                Smooth scroll
+              </label>
+              <input
+                class="form-toggle"
+                id="setting-smooth-scroll"
+                type="checkbox"
+              />
+            </div>
+            <div class="settings-row">
+              <label class="form-label" for="setting-whitespace">
+                Render whitespace
+              </label>
+              <select class="form-input" id="setting-whitespace">
+                <option value="none">none</option>
+                <option value="boundary">boundary</option>
+                <option value="all">all</option>
+              </select>
+            </div>
+          </div>
+          <div class="popover-actions">
+            <button class="ghost-btn" id="settings-reset-btn" type="button">
+              Reset
+            </button>
+            <button class="primary-btn" id="settings-close-btn" type="button">
+              Close
+            </button>
+          </div>
+        </div>
       </div>
     </div>
 

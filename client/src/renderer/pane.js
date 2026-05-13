@@ -9,6 +9,7 @@
 import { state } from "./state.js";
 import { detectLanguage } from "./lang-detect.js";
 import { initSplitHandleResize } from "./split-resize.js";
+import { getEditorCreateOptions } from "./editor-settings.js";
 // circular import — chỉ dùng trong function bodies
 import {
   activateTabInPane,
@@ -65,14 +66,11 @@ export function createLeafPane() {
 
   // Tạo Monaco editor nếu đã sẵn sàng (trường hợp tạo pane sau khi Monaco load)
   if (state.monacoReady) {
+    const theme = document.body.classList.contains("light-mode") ? "vs" : "vs-dark";
     pane.editor = monaco.editor.create(containerEl, {
       value: "",
       language: "plaintext",
-      theme: document.body.classList.contains("light-mode") ? "vs" : "vs-dark",
-      automaticLayout: true,
-      fontSize: 14,
-      minimap: { enabled: true },
-      scrollBeyondLastLine: false,
+      ...getEditorCreateOptions(theme),
     });
   }
   return pane;

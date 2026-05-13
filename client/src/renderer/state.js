@@ -36,4 +36,6 @@ export const LS = {
   EXPANDED: "rce_expanded_folders",
   THEME: "rce_theme",
   SIDEBAR_W: "rce_sidebar_width",
+  USER_PROFILE: "rce_user_profile",
+  EDITOR_SETTINGS: "rce_editor_settings",
 };

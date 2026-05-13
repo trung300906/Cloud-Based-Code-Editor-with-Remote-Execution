@@ -10,6 +10,10 @@ import { BC_ICON, getBcFileIcon } from "./icons.js";
 import { escapeHtml, isImageFile, isPdfFile } from "./utils.js";
 import { updateBreadcrumb } from "./breadcrumb.js";
 import {
+  applyEditorSettingsToModel,
+  loadEditorSettings,
+} from "./editor-settings.js";
+import {
   getFocusedPane,
   getPaneById,
   getPaneForTab,
@@ -93,6 +97,7 @@ export function openOrActivateTab(filePath, content, paneId) {
     ? monaco.Uri.file(filePath)
     : monaco.Uri.parse(`inmemory://model/${id}`);
   const model = monaco.editor.createModel(content || "", lang, uri);
+  applyEditorSettingsToModel(model, loadEditorSettings());
 
   model.onDidChangeContent(() => {
     const t = state.tabs.get(id);
