@@ -1461,3 +1461,21 @@ body.light-mode .bc-segment.bc-ellipsis:hover {
   background: none;
   color: #aaa;
 }
+
+.auth-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 10px;
+  font-size: 11px;
+  color: #aeb7c3;
+  user-select: none;
+}
+body.light-mode .auth-toggle {
+  color: #6d7b8b;
+}
+.auth-toggle button {
+  font-size: 11px;
+  padding: 2px 8px;
+}

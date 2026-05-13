@@ -132,7 +132,9 @@
         </select>
         <button id="submit-btn">🟢 Run Code</button>
         <button id="user-btn" class="menubar-chip" title="User">US</button>
-        <button id="settings-btn" class="menubar-chip" title="Settings">ST</button>
+        <button id="settings-btn" class="menubar-chip" title="Settings">
+          ST
+        </button>
       </div>
 
       <div
@@ -180,6 +182,16 @@
               </button>
               <button class="ghost-btn" id="login-clear-btn" type="button">
                 Clear
+              </button>
+            </div>
+            <div class="auth-toggle">
+              <span id="auth-toggle-text">Need an account?</span>
+              <button
+                class="ghost-btn mini-btn"
+                id="auth-mode-toggle"
+                type="button"
+              >
+                Register
               </button>
             </div>
           </div>
@@ -236,7 +248,9 @@
         <div class="popover-body">
           <div class="settings-grid">
             <div class="settings-row">
-              <label class="form-label" for="setting-font-size">Font size</label>
+              <label class="form-label" for="setting-font-size"
+                >Font size</label
+              >
               <div class="form-inline">
                 <input
                   class="form-range"
@@ -268,7 +282,9 @@
               />
             </div>
             <div class="settings-row">
-              <label class="form-label" for="setting-word-wrap">Word wrap</label>
+              <label class="form-label" for="setting-word-wrap"
+                >Word wrap</label
+              >
               <input
                 class="form-toggle"
                 id="setting-word-wrap"
@@ -277,11 +293,7 @@
             </div>
             <div class="settings-row">
               <label class="form-label" for="setting-minimap">Minimap</label>
-              <input
-                class="form-toggle"
-                id="setting-minimap"
-                type="checkbox"
-              />
+              <input class="form-toggle" id="setting-minimap" type="checkbox" />
             </div>
             <div class="settings-row">
               <label class="form-label" for="setting-line-numbers">
