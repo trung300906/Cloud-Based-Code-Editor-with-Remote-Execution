@@ -218,7 +218,10 @@ export function initCustomMenubar() {
 
   document.addEventListener("click", (e) => {
     if (!e.target.closest(".menu-item")) closeAllMenus();
-    if (!e.target.closest(".menubar-popover") && !e.target.closest(".menubar-chip")) {
+    if (
+      !e.target.closest(".menubar-popover") &&
+      !e.target.closest(".menubar-chip")
+    ) {
       closePopovers();
     }
   });
@@ -271,7 +274,7 @@ export function initCustomMenubar() {
 
   const AUTH_URL = "http://100.124.23.95:3000/login";
   const LOGOUT_URL = "http://100.124.23.95:3000/logout";
-
+  const REGISTER_URL = "http://100.124.23.95:3000/register";
   function loadUserProfile() {
     try {
       const raw = localStorage.getItem(LS.USER_PROFILE);
@@ -316,7 +319,8 @@ export function initCustomMenubar() {
       if (usernameInput) usernameInput.value = displayName;
       if (passwordInput) passwordInput.value = "";
       if (roomInput) roomInput.value = roomId;
-      if (userAvatar) userAvatar.textContent = displayName.slice(0, 2).toUpperCase();
+      if (userAvatar)
+        userAvatar.textContent = displayName.slice(0, 2).toUpperCase();
       if (userName) userName.textContent = displayName;
       if (userSub) userSub.textContent = isAuth ? "signed in" : "guest";
       if (userRoom) userRoom.textContent = roomId;
@@ -331,6 +335,34 @@ export function initCustomMenubar() {
     }
 
     let currentProfile = loadUserProfile();
+    let isRegisterMode = false;
+
+    const authToggleText = userPopover.querySelector("#auth-toggle-text");
+    const authModeToggle = userPopover.querySelector("#auth-mode-toggle");
+
+    function setAuthMode(registerMode) {
+      isRegisterMode = registerMode;
+      if (loginBtn)
+        loginBtn.textContent = isRegisterMode ? "Register" : "Login";
+      if (authToggleText) {
+        authToggleText.textContent = isRegisterMode
+          ? "Already have an account?"
+          : "Need an account?";
+      }
+      if (authModeToggle) {
+        authModeToggle.textContent = isRegisterMode ? "Login" : "Register";
+      }
+      if (loginStatus) {
+        loginStatus.textContent = "";
+        loginStatus.classList.remove("is-error", "is-ok");
+      }
+    }
+
+    if (authModeToggle) {
+      authModeToggle.addEventListener("click", () => {
+        setAuthMode(!isRegisterMode);
+      });
+    }
     renderUserProfile(currentProfile);
 
     if (loginBtn) {
@@ -349,10 +381,53 @@ export function initCustomMenubar() {
         }
 
         if (loginStatus) {
-          loginStatus.textContent = "Logging in...";
+          loginStatus.textContent = isRegisterMode
+            ? "Registering..."
+            : "Logging in...";
           loginStatus.classList.remove("is-error", "is-ok");
         }
 
+        // ─── REGISTER MODE ───
+        if (isRegisterMode) {
+          try {
+            const response = await fetch(REGISTER_URL, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ username, password }),
+            });
+
+            const payload = await response.json().catch(() => ({}));
+            if (!response.ok) {
+              const message =
+                payload?.error || `Registration failed (${response.status})`;
+              if (loginStatus) {
+                loginStatus.textContent = message;
+                loginStatus.classList.add("is-error");
+                loginStatus.classList.remove("is-ok");
+              }
+              return;
+            }
+
+            // Success: notify user, clear password, and switch back to Login
+            if (passwordInput) passwordInput.value = "";
+            if (loginStatus) {
+              loginStatus.textContent =
+                "Registration successful! Please log in.";
+              loginStatus.classList.add("is-ok");
+              loginStatus.classList.remove("is-error");
+            }
+            setAuthMode(false);
+          } catch (err) {
+            if (loginStatus) {
+              loginStatus.textContent = err?.message || "Network error";
+              loginStatus.classList.add("is-error");
+              loginStatus.classList.remove("is-ok");
+            }
+          }
+          return;
+        }
+
+        // ─── LOGIN MODE (original behavior) ───
         try {
           const response = await fetch(AUTH_URL, {
             method: "POST",
@@ -362,7 +437,8 @@ export function initCustomMenubar() {
 
           const payload = await response.json().catch(() => ({}));
           if (!response.ok || !payload?.token) {
-            const message = payload?.error || `Login failed (${response.status})`;
+            const message =
+              payload?.error || `Login failed (${response.status})`;
             if (loginStatus) {
               loginStatus.textContent = message;
               loginStatus.classList.add("is-error");
@@ -428,7 +504,8 @@ export function initCustomMenubar() {
           });
           if (!response.ok) {
             const payload = await response.json().catch(() => ({}));
-            const message = payload?.error || `Logout failed (${response.status})`;
+            const message =
+              payload?.error || `Logout failed (${response.status})`;
             if (loginStatus) {
               loginStatus.textContent = message;
               loginStatus.classList.add("is-error");
@@ -529,8 +606,10 @@ export function initCustomMenubar() {
       if (insertSpacesInput) insertSpacesInput.checked = current.insertSpaces;
       if (wordWrapInput) wordWrapInput.checked = current.wordWrap === "on";
       if (minimapInput) minimapInput.checked = current.minimap;
-      if (lineNumbersInput) lineNumbersInput.checked = current.lineNumbers === "on";
-      if (smoothScrollInput) smoothScrollInput.checked = current.smoothScrolling;
+      if (lineNumbersInput)
+        lineNumbersInput.checked = current.lineNumbers === "on";
+      if (smoothScrollInput)
+        smoothScrollInput.checked = current.smoothScrolling;
       if (whitespaceInput) whitespaceInput.value = current.renderWhitespace;
     }
 
@@ -577,7 +656,9 @@ export function initCustomMenubar() {
 
     if (lineNumbersInput) {
       lineNumbersInput.addEventListener("change", () => {
-        updateSettings({ lineNumbers: lineNumbersInput.checked ? "on" : "off" });
+        updateSettings({
+          lineNumbers: lineNumbersInput.checked ? "on" : "off",
+        });
       });
     }
 

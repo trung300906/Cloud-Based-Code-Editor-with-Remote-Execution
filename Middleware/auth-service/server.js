@@ -87,6 +87,37 @@ app.post("/login", async (req, res) => {
   }
 });
 
+app.post("/register", async (req, res) => {
+  try {
+    const { username, password } = req.body || {};
+    if (!username || !password) {
+      return res.status(400).json({ error: "username and password required" });
+    }
+
+    // Check for existing username
+    const existing = await pool.query(
+      "SELECT id FROM users WHERE username = $1 LIMIT 1",
+      [username],
+    );
+    if (existing.rowCount > 0) {
+      return res.status(409).json({ error: "username already exists" });
+    }
+
+    // Hash and insert
+    const password_hash = await bcrypt.hash(password, 10);
+    const result = await pool.query(
+      "INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id, username",
+      [username, password_hash],
+    );
+
+    const user = result.rows[0];
+    return res.status(201).json({ id: user.id, username: user.username });
+  } catch (err) {
+    console.error("[AuthService] /register error:", err.message || err);
+    return res.status(500).json({ error: "internal error" });
+  }
+});
+
 app.post("/logout", async (req, res) => {
   try {
     const token = extractToken(req);
