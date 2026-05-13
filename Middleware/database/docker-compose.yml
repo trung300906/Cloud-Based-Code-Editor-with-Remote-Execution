@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  # 1. PostgreSQL: Lưu User, Project Metadata
+  db:
+    image: postgres:15-alpine
+    container_name: ide-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: cloud_ide
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  # 2. Redis: Cache Session, Room State, Job Queue
+  redis:
+    image: redis:7-alpine
+    container_name: ide-redis
+    restart: always
+    command: redis-server --save 60 1 --loglevel warning
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  # 3. MinIO: Thay thế S3 để lưu Snapshot code vật lý
+  minio:
+    image: minio/minio
+    container_name: ide-minio
+    restart: always
+    ports:
+      - "9000:9000"       # API port
+      - "9001:9001"       # Console UI port
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

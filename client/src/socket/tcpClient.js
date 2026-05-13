@@ -1,103 +1,138 @@
-const net = require('net');
+"use strict";
 
-const TYPE = {
-  ERR:    0x00,
-  AUTH:   0x01,
-  EDIT:   0x02,
-  RUN:    0x03,
-  CURSOR: 0x04,
-  CHAT:   0x05,
-  RESULT: 0x06,
-  PING:   0xFF // Định nghĩa thêm type PING/PONG cho chuẩn
-};
+const net = require("net");
+const crypto = require("crypto");
+const { SessionManager } = require("./sessionManager.js");
+const { TYPE, buildFrame, parseFrame, decodeFramePayload } = require("./protocol.js");
+const { signJwt } = require("./cryptoClient.js");
+
+const DEFAULT_GATEWAY_HOST = process.env.GATEWAY_HOST || "100.124.23.95";
+const DEFAULT_GATEWAY_PORT = Number(process.env.GATEWAY_PORT || 8080);
+const DEFAULT_ROOM_ID = process.env.CLIENT_ROOM_ID || "default";
+const DEFAULT_SUB = process.env.CLIENT_SUB || "";
+
+const session = new SessionManager({ storageKey: "cbce.session.socket" });
 
 let buffer = Buffer.alloc(0);
 let heartbeatTimer = null;
 let pongTimer = null;
 let reconnectDelay = 1000;
+let isConnected = false;
 
 const client = new net.Socket();
 
+function _getRoomId() {
+  return session.getRoomId() || DEFAULT_ROOM_ID;
+}
+
+function _getClientId() {
+  const fromEnv = DEFAULT_SUB.trim();
+  if (fromEnv) return fromEnv;
+  return `guest-${crypto.randomBytes(4).toString("hex")}`;
+}
+
+function _ensureToken() {
+  let token = session.getToken();
+  if (token) return token;
+
+  const now = Math.floor(Date.now() / 1000);
+  const payload = {
+    sub: _getClientId(),
+    roomId: _getRoomId(),
+    iat: now,
+    exp: now + 24 * 60 * 60,
+  };
+
+  token = signJwt(payload);
+  session.setToken(token);
+  return token;
+}
+
+function _buildAuthPayload(reason) {
+  return {
+    token: _ensureToken(),
+    roomId: _getRoomId(),
+    fileState: session.getFileState(),
+    reason: reason || "init",
+    ts: Date.now(),
+  };
+}
+
 function connect() {
-  // 🔧 SỬA 1: Trỏ IP về con máy ảo Middleware (Tailscale IP)
-  client.connect(8080, '100.124.23.95', () => {
-    console.log('[TCP Client] 🚀 Kết nối Gateway thành công');
+  client.connect(DEFAULT_GATEWAY_PORT, DEFAULT_GATEWAY_HOST, () => {
+    console.log("[TCP Client] 🚀 Kết nối Gateway thành công");
     reconnectDelay = 1000;
+    isConnected = true;
+    sendAuth("connect");
     startHeartbeat();
   });
 }
 
-// 🔧 SỬA 2: Hàm send đóng gói đúng cấu trúc Gateway cần: Header(5B) + idLen(4B) + ID + Data
-function send(type, requestId, data) {
-  const idBuf = Buffer.from(requestId, 'utf8');
-  const idLenBuf = Buffer.alloc(4);
-  idLenBuf.writeUInt32BE(idBuf.length, 0);
-  
-  // Hỗ trợ gửi cả Object (OT diff) hoặc String (Code thuần)
-  const dataStr = typeof data === 'object' ? JSON.stringify(data) : String(data);
-  const dataBuf = Buffer.from(dataStr, 'utf8');
-
-  // Gộp lõi Payload (ID_LEN + ID + DATA)
-  const payloadBuf = Buffer.concat([idLenBuf, idBuf, dataBuf]);
-  
-  // Gắn Header (5 byte: 4 byte chiều dài + 1 byte loại lệnh)
-  const header = Buffer.alloc(5);
-  header.writeUInt32BE(payloadBuf.length, 0);
-  header.writeUInt8(type, 4);
-  
-  client.write(Buffer.concat([header, payloadBuf]));
+function send(type, requestId, data, opts = {}) {
+  if (!isConnected) return false;
+  const encrypt = opts.encrypt ?? type !== TYPE.PING;
+  const frame = buildFrame(type, requestId, data, { encrypt });
+  return client.write(frame);
 }
 
-client.on('data', (chunk) => {
+function sendAuth(reason) {
+  return send(TYPE.AUTH, "auth", _buildAuthPayload(reason), { encrypt: true });
+}
+
+function setSession(opts = {}) {
+  if (Object.prototype.hasOwnProperty.call(opts, "token")) {
+    session.setToken(opts.token);
+  }
+  if (Object.prototype.hasOwnProperty.call(opts, "roomId")) {
+    session.setRoomId(opts.roomId);
+  }
+  if (Object.prototype.hasOwnProperty.call(opts, "fileState")) {
+    session.setFileState(opts.fileState);
+  }
+  if (isConnected && opts.refreshAuth !== false) sendAuth("update");
+}
+
+client.on("data", (chunk) => {
   buffer = Buffer.concat([buffer, chunk]);
-  
+
   while (buffer.length >= 5) {
-    const len  = buffer.readUInt32BE(0);
-    const type = buffer.readUInt8(4);
-    
+    const len = buffer.readUInt32BE(0);
     if (buffer.length < 5 + len) break;
-    
-    // Dùng subarray thay vì slice để tiết kiệm RAM
-    const payload = buffer.subarray(5, 5 + len); 
+
+    const frame = buffer.subarray(0, 5 + len);
     buffer = buffer.subarray(5 + len);
-    
-    // Nếu là Server trả Pong thì xử lý riêng
-    if (type === TYPE.PING || type === 0xFF) {
+
+    const parsed = parseFrame(frame);
+    if (!parsed) continue;
+
+    if (parsed.type === TYPE.PING) {
       handlePong();
       continue;
     }
 
-    // 🔧 SỬA 3: Bóc tách payload Gateway gửi về (ID_LEN + ID + DATA)
-    if (payload.length < 4) continue; 
-    
-    const idLen = payload.readUInt32BE(0);
-    if (payload.length < 4 + idLen) continue;
+    const decoded = decodeFramePayload(parsed.type, parsed.payload, {
+      decrypt: false,
+    });
+    if (!decoded) continue;
 
-    // Lấy ID và nội dung
-    const requestId = payload.subarray(4, 4 + idLen).toString('utf8');
-    const rawData = payload.subarray(4 + idLen).toString('utf8');
-    
-    // Cố gắng parse JSON, nếu thất bại thì giữ nguyên chuỗi Text (Phù hợp cho Log STDOUT từ Worker)
-    let parsedData = rawData;
-    try { parsedData = JSON.parse(rawData); } catch (e) {}
-
-    dispatch(type, requestId, parsedData);
+    dispatch(parsed.type, decoded.requestId, decoded.data);
   }
 });
 
 function dispatch(type, requestId, data) {
+  if (type === TYPE.AUTH) handleAuthAck(requestId, data);
   if (type === TYPE.RESULT) handleResult(requestId, data);
-  if (type === TYPE.EDIT)   handleEdit(requestId, data);
+  if (type === TYPE.EDIT) handleEdit(requestId, data);
   if (type === TYPE.CURSOR) handleCursor(requestId, data);
-  if (type === TYPE.ERR)    handleError(requestId, data);
+  if (type === TYPE.ERR) handleError(requestId, data);
 }
 
 function startHeartbeat() {
+  clearInterval(heartbeatTimer);
   heartbeatTimer = setInterval(() => {
-    // Gọi hàm send mới với Request ID là "sys"
-    send(TYPE.PING, "sys", { ping: Date.now() }); 
+    send(TYPE.PING, "sys", { ping: Date.now() }, { encrypt: false });
     pongTimer = setTimeout(() => {
-      console.warn('[TCP Client] ⚠️ Không nhận pong → mất kết nối');
+      console.warn("[TCP Client] ⚠️ Không nhận pong → mất kết nối");
       client.destroy();
     }, 5000);
   }, 15000);
@@ -105,6 +140,10 @@ function startHeartbeat() {
 
 function handlePong() {
   clearTimeout(pongTimer);
+}
+
+function handleAuthAck(requestId, data) {
+  console.log(`[TCP Client] ✅ AUTH OK (${requestId})`, data);
 }
 
 function handleResult(requestId, data) {
@@ -123,9 +162,10 @@ function handleError(requestId, data) {
   console.error(`[❌ Error - ${requestId}]:`, data);
 }
 
-client.on('close', () => {
+client.on("close", () => {
   clearInterval(heartbeatTimer);
   clearTimeout(pongTimer);
+  isConnected = false;
   console.log(`[TCP Client] 🔴 Mất kết nối — reconnect sau ${reconnectDelay}ms`);
   setTimeout(() => {
     connect();
@@ -133,11 +173,12 @@ client.on('close', () => {
   }, reconnectDelay);
 });
 
-client.on('error', (err) => {
-  console.error('[TCP Client] 💥 Socket error:', err.message);
+client.on("error", (err) => {
+  console.error("[TCP Client] 💥 Socket error:", err.message);
 });
 
-connect();
+if (process.env.TCP_AUTO_CONNECT !== "0") {
+  connect();
+}
 
-// Export với cấu trúc mới
-module.exports = { send, TYPE };
+module.exports = { send, sendAuth, setSession, connect, TYPE };

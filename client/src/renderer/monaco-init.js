@@ -7,6 +7,7 @@
 import { state, LS } from "./state.js";
 import { ALL_LANGUAGES } from "./lang-detect.js";
 import { openOrActivateTab } from "./tab.js";
+import { getEditorCreateOptions } from "./editor-settings.js";
 
 // =====================================================================
 // LANGUAGE DROPDOWN
@@ -119,14 +120,11 @@ require(["vs/editor/editor.main"], function () {
   // Tạo editor cho pane đầu tiên (đã được tạo bởi initRootPane ở DOMContentLoaded)
   const pane = state.panes[0];
   if (pane && !pane.editor) {
+    const theme = document.body.classList.contains("light-mode") ? "vs" : "vs-dark";
     pane.editor = monaco.editor.create(pane.containerEl, {
       value: "",
       language: "cpp",
-      theme: document.body.classList.contains("light-mode") ? "vs" : "vs-dark",
-      automaticLayout: true,
-      fontSize: 14,
-      minimap: { enabled: true },
-      scrollBeyondLastLine: false,
+      ...getEditorCreateOptions(theme),
     });
   }
 

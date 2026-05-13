@@ -1,6 +1,6 @@
 const tcpClient = require('./tcpClient.js');
 
-const TOTAL_JOBS = 500; // Bắn 20 job (nếu mượt bác có thể nâng lên 50, 100)
+const TOTAL_JOBS = 5; // Bắn 20 job (nếu mượt bác có thể nâng lên 50, 100)
 const DELAY_BETWEEN_JOBS_MS = 50; // Cách nhau 50ms để không bị Rate Limit đá văng ngay lập tức
 
 console.log(`=================================================`);

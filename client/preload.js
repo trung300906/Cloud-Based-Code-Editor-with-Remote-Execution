@@ -35,4 +35,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   winZoomOut: () => ipcRenderer.send("win-zoom-out"),
   winResetZoom: () => ipcRenderer.send("win-reset-zoom"),
   appQuit: () => ipcRenderer.send("app-quit"),
+
+  // Auth flow
+  loginSuccess: (token) => ipcRenderer.send("login-success", token),
 });

@@ -34,6 +34,7 @@ body {
   user-select: none;
   padding: 0 4px;
   z-index: 9999;
+  position: relative;
 }
 
 .menubar-menus {
@@ -318,6 +319,260 @@ body {
   font-size: 12px;
   border-radius: 3px;
   cursor: pointer;
+}
+
+.menubar-chip {
+  height: 22px;
+  min-width: 30px;
+  padding: 0 8px;
+  border-radius: 10px;
+  border: 1px solid #3e4a57;
+  background: linear-gradient(145deg, #2a2f36, #20252b);
+  color: #d6dde6;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+  transition: transform 0.12s ease, border-color 0.12s ease;
+  text-transform: uppercase;
+}
+.menubar-chip:hover {
+  border-color: #5aa9ff;
+  transform: translateY(-1px);
+}
+.menubar-chip.is-active {
+  border-color: #7fd3ff;
+  box-shadow: 0 0 0 1px rgba(127, 211, 255, 0.2);
+}
+
+.menubar-popover {
+  position: absolute;
+  top: 34px;
+  left: 8px;
+  width: 320px;
+  background: linear-gradient(160deg, #2b313a 0%, #1f232a 60%, #1b1f26 100%);
+  border: 1px solid #34404a;
+  border-radius: 10px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.55);
+  z-index: 11000;
+  opacity: 0;
+  transform: translateY(6px) scale(0.98);
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+.menubar-popover.open {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+.popover-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+.popover-title {
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #e7edf5;
+}
+.popover-close {
+  border: 1px solid transparent;
+  background: transparent;
+  color: #96a3b3;
+  cursor: pointer;
+  font-size: 12px;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+.popover-close:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.popover-body {
+  padding: 12px;
+}
+
+.form-label {
+  display: block;
+  font-size: 11px;
+  color: #aeb7c3;
+  margin: 6px 0 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.form-input {
+  width: 100%;
+  background: rgba(15, 19, 25, 0.75);
+  border: 1px solid #2f3a45;
+  border-radius: 6px;
+  color: #e1e7ef;
+  font-size: 12px;
+  padding: 6px 8px;
+  outline: none;
+  transition: border-color 0.12s ease;
+}
+.form-input:focus {
+  border-color: #5aa9ff;
+}
+.form-textarea {
+  resize: vertical;
+  min-height: 54px;
+}
+.form-range {
+  width: 100%;
+}
+.form-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.form-toggle {
+  width: 18px;
+  height: 18px;
+}
+.value-pill {
+  min-width: 32px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 10px;
+  background: rgba(90, 169, 255, 0.18);
+  color: #7fd3ff;
+}
+
+.primary-btn,
+.ghost-btn {
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.primary-btn {
+  background: #1b6fb2;
+  color: #fff;
+  border-color: #1b6fb2;
+}
+.primary-btn:hover {
+  background: #2282d1;
+}
+.ghost-btn {
+  background: transparent;
+  color: #c4ceda;
+  border-color: #35414d;
+}
+.ghost-btn:hover {
+  color: #fff;
+  border-color: #5aa9ff;
+}
+.mini-btn {
+  padding: 2px 6px;
+  font-size: 10px;
+}
+
+.popover-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.login-status {
+  min-height: 18px;
+  font-size: 11px;
+  color: #b6c2cf;
+  margin-top: 6px;
+}
+.login-status.is-error {
+  color: #ff8a8a;
+}
+.login-status.is-ok {
+  color: #7fd3ff;
+}
+
+.user-panel {
+  display: none;
+}
+[data-user-wrapper].is-auth .user-auth,
+[data-user-wrapper]:not(.is-auth) .user-guest {
+  display: block;
+}
+
+.user-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.user-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #5aa9ff, #49d2b0);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  color: #09121a;
+}
+.user-meta {
+  min-width: 0;
+}
+.user-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #e7edf5;
+}
+.user-sub {
+  font-size: 11px;
+  color: #9aa6b4;
+}
+
+.user-kv {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kv-row {
+  display: grid;
+  grid-template-columns: 60px 1fr auto;
+  gap: 8px;
+  align-items: center;
+}
+.kv-key {
+  font-size: 11px;
+  color: #a9b3bf;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+.kv-value {
+  font-size: 12px;
+  color: #e1e7ef;
+  word-break: break-all;
+}
+.kv-token {
+  font-family: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  font-size: 10px;
+}
+
+.settings-grid {
+  display: grid;
+  gap: 10px;
+}
+.settings-row {
+  display: grid;
+  gap: 6px;
 }
 
 /* =====================================================================
@@ -722,6 +977,55 @@ body.light-mode #lang-select {
   background-color: #fff;
   color: #333;
   border: 1px solid #ccc;
+}
+
+body.light-mode .menubar-chip {
+  background: linear-gradient(145deg, #ffffff, #e8edf2);
+  border-color: #c7d1dc;
+  color: #3b4a5a;
+}
+body.light-mode .menubar-chip:hover {
+  border-color: #3c7bd6;
+}
+body.light-mode .menubar-popover {
+  background: linear-gradient(160deg, #ffffff 0%, #f0f3f7 60%, #e6eaf0 100%);
+  border-color: #c8d0da;
+  box-shadow: 0 16px 28px rgba(0, 0, 0, 0.16);
+}
+body.light-mode .popover-title {
+  color: #2d3a48;
+}
+body.light-mode .form-label {
+  color: #6d7b8b;
+}
+body.light-mode .form-input {
+  background: #fff;
+  border-color: #c7d1dc;
+  color: #2d3a48;
+}
+body.light-mode .value-pill {
+  background: rgba(60, 123, 214, 0.15);
+  color: #3c7bd6;
+}
+body.light-mode .ghost-btn {
+  color: #3b4a5a;
+  border-color: #c7d1dc;
+}
+body.light-mode .ghost-btn:hover {
+  border-color: #3c7bd6;
+  color: #1b2a3a;
+}
+body.light-mode .user-name {
+  color: #1b2a3a;
+}
+body.light-mode .user-sub {
+  color: #5c6b7b;
+}
+body.light-mode .kv-key {
+  color: #6d7b8b;
+}
+body.light-mode .kv-value {
+  color: #2d3a48;
 }
 
 body.light-mode .resize-handle:hover,
