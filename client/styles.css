@@ -349,7 +349,7 @@ body {
   position: absolute;
   top: 34px;
   left: 8px;
-  width: 320px;
+  width: 300px;
   background: linear-gradient(160deg, #2b313a 0%, #1f232a 60%, #1b1f26 100%);
   border: 1px solid #34404a;
   border-radius: 10px;
@@ -398,7 +398,8 @@ body {
 }
 
 .popover-body {
-  padding: 12px;
+  padding: 16px;          
+  box-sizing: border-box;
 }
 
 .form-label {
@@ -421,6 +422,7 @@ body {
   transition: border-color 0.12s ease;
 }
 .form-input:focus {
+  width: 100%;
   border-color: #5aa9ff;
 }
 .form-textarea {
