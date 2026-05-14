@@ -12,6 +12,7 @@ import {
   saveEditorSettings,
   applyEditorSettingsToAll,
 } from "./editor-settings.js";
+import { showDiffResolution } from "./diff-editor.js";
 
 // ---- Save file hiện tại ----
 export function doSave() {
@@ -126,9 +127,16 @@ export function handleMenuAction(action) {
 }
 
 // ---- Khởi tạo dropdown logic + theme toggle + lang dropdown ----
-export function initCustomMenubar() {
+export async function initCustomMenubar() {
   const menubar = document.getElementById("custom-menubar");
   if (!menubar) return;
+
+  // Lắng nghe sự kiện xung đột đồng bộ
+  if (window.electronAPI && window.electronAPI.onSyncConflict) {
+    window.electronAPI.onSyncConflict((data) => {
+      showDiffResolution(data.filepath, data.localContent, data.cloudContent);
+    });
+  }
 
   const menuItems = menubar.querySelectorAll(".menu-item");
 
@@ -275,19 +283,31 @@ export function initCustomMenubar() {
   const AUTH_URL = "http://100.124.23.95:3000/login";
   const LOGOUT_URL = "http://100.124.23.95:3000/logout";
   const REGISTER_URL = "http://100.124.23.95:3000/register";
-  function loadUserProfile() {
+  async function loadUserProfile() {
     try {
       const raw = localStorage.getItem(LS.USER_PROFILE);
       if (!raw) return null;
-      return JSON.parse(raw);
+      const profile = JSON.parse(raw);
+      // Giải mã token từ OS keychain nếu có
+      if (profile?.encryptedToken && window.electronAPI?.decryptToken) {
+        profile.token = await window.electronAPI.decryptToken(profile.encryptedToken);
+        delete profile.encryptedToken;
+      }
+      return profile;
     } catch (_) {
       return null;
     }
   }
 
-  function saveUserProfile(profile) {
+  async function saveUserProfile(profile) {
     try {
-      localStorage.setItem(LS.USER_PROFILE, JSON.stringify(profile));
+      const toSave = { ...profile };
+      // Mã hóa token bằng OS keychain trước khi lưu
+      if (toSave.token && window.electronAPI?.encryptToken) {
+        toSave.encryptedToken = await window.electronAPI.encryptToken(toSave.token);
+        delete toSave.token; // Không lưu plaintext token
+      }
+      localStorage.setItem(LS.USER_PROFILE, JSON.stringify(toSave));
     } catch (_) {}
   }
 
@@ -334,7 +354,7 @@ export function initCustomMenubar() {
       }
     }
 
-    let currentProfile = loadUserProfile();
+    let currentProfile = await loadUserProfile();
     let isRegisterMode = false;
 
     const authToggleText = userPopover.querySelector("#auth-toggle-text");
@@ -364,6 +384,40 @@ export function initCustomMenubar() {
       });
     }
     renderUserProfile(currentProfile);
+
+    // Helper: kiểm tra JWT hết hạn chưa (decode payload mà không cần thư viện)
+    function isTokenExpired(token) {
+      try {
+        const parts = token.split(".");
+        if (parts.length !== 3) return true;
+        const payload = JSON.parse(atob(parts[1]));
+        if (!payload.exp) return false;
+        // So sánh với thời gian hiện tại (exp tính bằng giây)
+        return payload.exp * 1000 < Date.now();
+      } catch (_) {
+        return true;
+      }
+    }
+
+    // Khôi phục session: nếu profile đã lưu có token hợp lệ, gửi lại cho Main Process
+    if (currentProfile?.loggedIn && currentProfile?.token) {
+      if (isTokenExpired(currentProfile.token)) {
+        // Token hết hạn → tự động clear session
+        console.warn("[Menubar] Saved token expired, clearing session.");
+        currentProfile = {
+          username: currentProfile.username || "",
+          roomId: currentProfile.roomId || "default",
+          token: "",
+          loggedIn: false,
+          lastLogin: currentProfile.lastLogin || null,
+        };
+        await saveUserProfile(currentProfile);
+        renderUserProfile(currentProfile);
+      } else if (window.electronAPI?.loginSuccess) {
+        window.electronAPI.loginSuccess(currentProfile.token);
+        console.log("[Menubar] Restored saved session token to Main Process.");
+      }
+    }
 
     if (loginBtn) {
       loginBtn.addEventListener("click", async () => {
@@ -454,7 +508,7 @@ export function initCustomMenubar() {
             loggedIn: true,
             lastLogin: Date.now(),
           };
-          saveUserProfile(currentProfile);
+          await saveUserProfile(currentProfile);
           renderUserProfile(currentProfile);
 
           if (loginStatus) {
@@ -504,14 +558,19 @@ export function initCustomMenubar() {
           });
           if (!response.ok) {
             const payload = await response.json().catch(() => ({}));
-            const message =
-              payload?.error || `Logout failed (${response.status})`;
-            if (loginStatus) {
-              loginStatus.textContent = message;
-              loginStatus.classList.add("is-error");
-              loginStatus.classList.remove("is-ok");
+            const isExpired = payload?.error === "invalid token" || response.status === 401;
+            if (!isExpired) {
+              // Lỗi thật sự (không phải expired) → báo lỗi và dừng
+              const message = payload?.error || `Logout failed (${response.status})`;
+              if (loginStatus) {
+                loginStatus.textContent = message;
+                loginStatus.classList.add("is-error");
+                loginStatus.classList.remove("is-ok");
+              }
+              return;
             }
-            return;
+            // Token expired → vẫn cho logout local bình thường
+            console.warn("[Menubar] Token expired, forcing local logout.");
           }
         } catch (err) {
           if (loginStatus) {
@@ -530,7 +589,7 @@ export function initCustomMenubar() {
         loggedIn: false,
         lastLogin: currentProfile?.lastLogin || null,
       };
-      saveUserProfile(currentProfile);
+      await saveUserProfile(currentProfile);
       renderUserProfile(currentProfile);
       if (loginStatus) {
         loginStatus.textContent = "Logged out";

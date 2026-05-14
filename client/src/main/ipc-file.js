@@ -5,22 +5,33 @@ const { ipcMain, dialog } = require("electron");
 const path = require("node:path");
 const fs = require("fs");
 const { buildTree } = require("./file-utils");
+const { syncManager } = require("./sync-service.js");
 
 /**
  * Đăng ký tất cả IPC handler liên quan đến file system.
  * @param {Electron.BrowserWindow} mainWindow
  */
 function registerFileIPC(mainWindow) {
+  // Lazy require to avoid circular dependency with main.js
+  const { getToken } = require("../../main.js");
+
   // ---- Save file ----
   ipcMain.on("save-file", (event, { filePath, content }) => {
+    const token = getToken();
     if (filePath) {
       fs.writeFileSync(filePath, content);
       mainWindow.webContents.send("file-saved", filePath);
+      if (token) {
+        syncManager.autoSync(filePath, token).catch(console.error);
+      }
     } else {
       dialog.showSaveDialog(mainWindow).then((result) => {
         if (!result.canceled) {
           fs.writeFileSync(result.filePath, content);
           mainWindow.webContents.send("file-saved", result.filePath);
+          if (token) {
+            syncManager.autoSync(result.filePath, token).catch(console.error);
+          }
         }
       });
     }

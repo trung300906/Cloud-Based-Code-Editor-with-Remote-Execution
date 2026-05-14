@@ -24,10 +24,10 @@ import {
 // =====================================================================
 // DOM READY — khởi tạo toàn bộ UI components
 // =====================================================================
-window.addEventListener("DOMContentLoaded", () => {
+window.addEventListener("DOMContentLoaded", async () => {
   initRootPane(); // Tạo pane đầu tiên (Monaco chưa load, editor sẽ được tạo sau)
   buildSidebarToolbar(); // Inject toolbar vào sidebar
-  initCustomMenubar(); // Dropdown menu + theme toggle + lang dropdown
+  await initCustomMenubar(); // Dropdown menu + theme toggle + lang dropdown + decrypt token
   initKeyboardShortcuts(); // Ctrl+N, Ctrl+S, ...
   initQuickOpen(); // Ctrl+P command palette
   initResizeHandle(); // Kéo divider sidebar

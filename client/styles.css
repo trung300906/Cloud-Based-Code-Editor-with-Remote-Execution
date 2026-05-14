@@ -1481,3 +1481,26 @@ body.light-mode .auth-toggle {
   font-size: 11px;
   padding: 2px 8px;
 }
+
+/* =====================================================================
+   DIFF EDITOR UI
+   ===================================================================== */
+.diff-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background-color: #252526;
+  border-bottom: 1px solid #333;
+}
+.diff-title {
+  font-size: 14px;
+  color: #e7edf5;
+}
+.diff-icon {
+  margin-right: 8px;
+}
+.diff-actions {
+  display: flex;
+  gap: 10px;
+}
