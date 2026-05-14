@@ -1,4 +1,4 @@
-FROM python:3.12-slim-bookworm
+FROM python:3.12.12-bookworm
 
 ARG SANDBOX_UID=10001
 ARG SANDBOX_GID=10001
