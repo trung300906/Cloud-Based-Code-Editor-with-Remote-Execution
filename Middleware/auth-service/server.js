@@ -8,6 +8,11 @@ const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
 const { Pool } = require("pg");
 const { createClient } = require("redis");
+const {
+  S3Client,
+  PutObjectCommand,
+  GetObjectCommand,
+} = require("@aws-sdk/client-s3");
 
 const PORT = Number(process.env.AUTH_PORT || 3000);
 const JWT_SECRET = process.env.JWT_HMAC_SECRET || "dev-hmac-secret";
@@ -30,6 +35,18 @@ const redisClient = createClient({
 redisClient.on("error", (err) => {
   console.error("[AuthService] Redis error:", err.message || err);
 });
+
+const s3 = new S3Client({
+  endpoint: process.env.MINIO_ENDPOINT || "http://100.124.23.95:9000",
+  region: "us-east-1",
+  credentials: {
+    accessKeyId: process.env.MINIO_USER || "minioadmin",
+    secretAccessKey: process.env.MINIO_PASS || "minioadmin",
+  },
+  forcePathStyle: true,
+});
+
+const MINIO_BUCKET = process.env.MINIO_BUCKET || "cloud-ide";
 
 const app = express();
 app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
@@ -142,6 +159,82 @@ app.post("/logout", async (req, res) => {
     return res.status(200).json({ ok: true });
   } catch (err) {
     console.error("[AuthService] /logout error:", err.message || err);
+    return res.status(500).json({ error: "internal error" });
+  }
+});
+
+// ---- Reusable JWT Auth Middleware ----
+const authenticateToken = (req, res, next) => {
+  try {
+    const auth = req.headers.authorization || "";
+    if (!auth.startsWith("Bearer ")) {
+      return res.status(401).json({ error: "missing or invalid authorization header" });
+    }
+    const token = auth.slice(7);
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: "invalid or expired token" });
+  }
+};
+
+// ---- Helper: convert S3 stream to string ----
+async function streamToString(stream) {
+  const chunks = [];
+  for await (const chunk of stream) {
+    chunks.push(typeof chunk === "string" ? Buffer.from(chunk) : chunk);
+  }
+  return Buffer.concat(chunks).toString("utf-8");
+}
+
+// ---- GET /api/sync/file — Fetch file from MinIO ----
+app.get("/api/sync/file", authenticateToken, async (req, res) => {
+  try {
+    const filepath = req.query.filepath;
+    if (!filepath) {
+      return res.status(400).json({ error: "filepath query parameter required" });
+    }
+
+    const key = `${req.user.username}/${filepath}`;
+    try {
+      const response = await s3.send(
+        new GetObjectCommand({ Bucket: MINIO_BUCKET, Key: key }),
+      );
+      const content = await streamToString(response.Body);
+      return res.json({ content });
+    } catch (s3Err) {
+      if (s3Err.name === "NoSuchKey" || s3Err.$metadata?.httpStatusCode === 404) {
+        return res.json({ content: "" });
+      }
+      throw s3Err;
+    }
+  } catch (err) {
+    console.error("[AuthService] GET /api/sync/file error:", err.message || err);
+    return res.status(500).json({ error: "internal error" });
+  }
+});
+
+// ---- POST /api/sync/file — Upload file to MinIO ----
+app.post("/api/sync/file", authenticateToken, async (req, res) => {
+  try {
+    const { filepath, content } = req.body || {};
+    if (!filepath || content === undefined) {
+      return res.status(400).json({ error: "filepath and content required" });
+    }
+
+    const key = `${req.user.username}/${filepath}`;
+    await s3.send(
+      new PutObjectCommand({
+        Bucket: MINIO_BUCKET,
+        Key: key,
+        Body: content,
+        ContentType: "text/plain",
+      }),
+    );
+    return res.json({ success: true });
+  } catch (err) {
+    console.error("[AuthService] POST /api/sync/file error:", err.message || err);
     return res.status(500).json({ error: "internal error" });
   }
 });

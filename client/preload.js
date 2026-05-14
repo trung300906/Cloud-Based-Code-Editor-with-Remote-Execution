@@ -38,4 +38,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // Auth flow
   loginSuccess: (token) => ipcRenderer.send("login-success", token),
+
+  // SafeStorage — mã hóa token bằng OS keychain (Linux: GNOME Keyring, Windows: DPAPI)
+  encryptToken: (plainText) => ipcRenderer.invoke("safe-storage:encrypt", plainText),
+  decryptToken: (cipher) => ipcRenderer.invoke("safe-storage:decrypt", cipher),
+
+  // Sync Engine
+  onSyncConflict: (callback) => ipcRenderer.on('sync:conflict', (_event, data) => callback(data)),
+  resolveConflict: (filepath, resolvedContent) => ipcRenderer.invoke('sync:resolve', filepath, resolvedContent),
 });
