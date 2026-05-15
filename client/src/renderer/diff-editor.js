@@ -1,5 +1,6 @@
 // =====================================================================
 // DIFF EDITOR UI — Trình giải quyết xung đột bằng Monaco Diff Editor
+// Supports OCC: passes cloudVersion through resolution for version-aware push
 // =====================================================================
 
 import { getFocusedPane } from "./pane.js";
@@ -13,8 +14,9 @@ let modifiedModel = null;
  * @param {string} filepath Đường dẫn file đang bị xung đột
  * @param {string} localContent Nội dung trên máy local
  * @param {string} cloudContent Nội dung từ máy chủ cloud
+ * @param {number} cloudVersion Version hiện tại trên server (dùng cho OCC push sau resolve)
  */
-export function showDiffResolution(filepath, localContent, cloudContent) {
+export function showDiffResolution(filepath, localContent, cloudContent, cloudVersion) {
   const diffContainer = document.getElementById("diff-editor-container");
   const mainEditor = document.getElementById("main-editor");
   
@@ -32,6 +34,7 @@ export function showDiffResolution(filepath, localContent, cloudContent) {
     <div class="diff-title">
       <span class="diff-icon">⚠️</span>
       <strong>Sync Conflict:</strong> ${filepath}
+      <span class="diff-version-badge">Server v${cloudVersion}</span>
     </div>
     <div class="diff-actions">
       <button id="btn-accept-cloud" class="ghost-btn">Accept Cloud (Left)</button>
@@ -64,8 +67,9 @@ export function showDiffResolution(filepath, localContent, cloudContent) {
   });
 
   function saveAndClose(finalContent) {
-    // Gửi sự kiện giải quyết xung đột lên Main Process (ghi đè Local và đẩy lên Cloud)
-    window.electronAPI.resolveConflict(filepath, finalContent);
+    // Gửi sự kiện giải quyết xung đột lên Main Process
+    // Truyền cloudVersion để OCC push sử dụng đúng version
+    window.electronAPI.resolveConflict(filepath, finalContent, cloudVersion);
 
     // Cập nhật lại editor chính hiển thị nội dung vừa merge
     const pane = getFocusedPane();

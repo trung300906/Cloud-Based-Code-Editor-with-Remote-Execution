@@ -134,7 +134,7 @@ export async function initCustomMenubar() {
   // Lắng nghe sự kiện xung đột đồng bộ
   if (window.electronAPI && window.electronAPI.onSyncConflict) {
     window.electronAPI.onSyncConflict((data) => {
-      showDiffResolution(data.filepath, data.localContent, data.cloudContent);
+      showDiffResolution(data.filepath, data.localContent, data.cloudContent, data.cloudVersion);
     });
   }
 

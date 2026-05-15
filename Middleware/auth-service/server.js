@@ -1,5 +1,7 @@
 "use strict";
 
+const crypto = require("node:crypto");
+
 require("dotenv").config();
 
 const express = require("express");
@@ -215,26 +217,313 @@ app.get("/api/sync/file", authenticateToken, async (req, res) => {
   }
 });
 
-// ---- POST /api/sync/file — Upload file to MinIO ----
-app.post("/api/sync/file", authenticateToken, async (req, res) => {
+// =====================================================================
+// Phase 1 — OCC Project Sync API
+// =====================================================================
+
+// ---- POST /api/project/create — Create a new project ----
+app.post("/api/project/create", authenticateToken, async (req, res) => {
   try {
-    const { filepath, content } = req.body || {};
-    if (!filepath || content === undefined) {
-      return res.status(400).json({ error: "filepath and content required" });
+    const { name } = req.body || {};
+    const ownerId = Number(req.user.sub);
+
+    if (!name || typeof name !== "string" || name.trim() === "") {
+      return res.status(400).json({ error: "project name required" });
     }
 
-    const key = `${req.user.username}/${filepath}`;
-    await s3.send(
-      new PutObjectCommand({
-        Bucket: MINIO_BUCKET,
-        Key: key,
-        Body: content,
-        ContentType: "text/plain",
-      }),
+    const result = await pool.query(
+      `INSERT INTO projects (owner_id, name)
+       VALUES ($1, $2)
+       ON CONFLICT (owner_id, name) DO NOTHING
+       RETURNING id, name, created_at`,
+      [ownerId, name.trim()],
     );
-    return res.json({ success: true });
+
+    if (result.rowCount === 0) {
+      // Project already exists, fetch it
+      const existing = await pool.query(
+        `SELECT id, name, created_at FROM projects
+         WHERE owner_id = $1 AND name = $2 LIMIT 1`,
+        [ownerId, name.trim()],
+      );
+      return res.status(200).json({
+        project: existing.rows[0],
+        created: false,
+      });
+    }
+
+    return res.status(201).json({
+      project: result.rows[0],
+      created: true,
+    });
   } catch (err) {
-    console.error("[AuthService] POST /api/sync/file error:", err.message || err);
+    console.error("[API] POST /api/project/create error:", err.message || err);
+    return res.status(500).json({ error: "internal error" });
+  }
+});
+
+// ---- GET /api/project/files — List all files in a project ----
+app.get("/api/project/files", authenticateToken, async (req, res) => {
+  try {
+    const projectId = Number(req.query.project_id);
+    if (!projectId || !Number.isFinite(projectId)) {
+      return res.status(400).json({ error: "project_id query parameter required" });
+    }
+
+    const result = await pool.query(
+      `SELECT f.id, f.path, f.version, f.hash, f.last_modified_by, f.last_updated
+       FROM files f
+       JOIN projects p ON p.id = f.project_id
+       WHERE f.project_id = $1 AND p.owner_id = $2
+       ORDER BY f.path`,
+      [projectId, Number(req.user.sub)],
+    );
+
+    return res.json({ files: result.rows });
+  } catch (err) {
+    console.error("[API] GET /api/project/files error:", err.message || err);
+    return res.status(500).json({ error: "internal error" });
+  }
+});
+
+// ---- POST /api/project/sync/file — OCC Save with Postgres Transaction ----
+// Input:  { project_id, path, content, version }
+// Output: 200 { new_version, hash } or 409 { error, current_version }
+app.post("/api/project/sync/file", authenticateToken, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { project_id, path: filePath, content, version } = req.body || {};
+    const userId = Number(req.user.sub);
+
+    // ── Validate input ──
+    if (!project_id || !filePath || content === undefined || version === undefined) {
+      return res.status(400).json({
+        error: "project_id, path, content, and version are required",
+      });
+    }
+
+    const projectId = Number(project_id);
+    const clientVersion = Number(version);
+
+    if (!Number.isFinite(projectId) || !Number.isFinite(clientVersion)) {
+      return res.status(400).json({ error: "project_id and version must be numbers" });
+    }
+
+    // ── Verify project ownership ──
+    const projectCheck = await client.query(
+      `SELECT id FROM projects WHERE id = $1 AND owner_id = $2 LIMIT 1`,
+      [projectId, userId],
+    );
+    if (projectCheck.rowCount === 0) {
+      return res.status(403).json({ error: "project not found or not owned by you" });
+    }
+
+    // ── Compute content hash ──
+    const contentHash = crypto
+      .createHash("md5")
+      .update(content, "utf8")
+      .digest("hex");
+
+    // ── BEGIN TRANSACTION ──
+    await client.query("BEGIN");
+
+    // Step 1: Get current file record (FOR UPDATE = row-level lock)
+    const existing = await client.query(
+      `SELECT id, version, hash FROM files
+       WHERE project_id = $1 AND path = $2
+       FOR UPDATE`,
+      [projectId, filePath],
+    );
+
+    let newVersion;
+    const minioKey = `${userId}/${projectId}/${filePath}`;
+
+    if (existing.rowCount === 0) {
+      // ── NEW FILE: Insert metadata first, then upload ──
+      newVersion = 1;
+
+      // Upload to MinIO
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: MINIO_BUCKET,
+          Key: minioKey,
+          Body: content,
+          ContentType: "text/plain",
+        }),
+      );
+
+      // Insert into Postgres
+      await client.query(
+        `INSERT INTO files (project_id, path, version, hash, last_modified_by, last_updated)
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
+        [projectId, filePath, newVersion, contentHash, userId],
+      );
+    } else {
+      // ── EXISTING FILE: OCC Check ──
+      const dbVersion = existing.rows[0].version;
+      const dbHash = existing.rows[0].hash;
+
+      // Step 2: OCC — Version mismatch = CONFLICT
+      if (clientVersion < dbVersion) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          error: "Conflict",
+          current_version: dbVersion,
+          current_hash: dbHash,
+          message: `Your version (${clientVersion}) is behind server (${dbVersion}). Pull and merge.`,
+        });
+      }
+
+      // Skip if content unchanged (same hash)
+      if (contentHash === dbHash) {
+        await client.query("ROLLBACK");
+        return res.status(200).json({
+          new_version: dbVersion,
+          hash: dbHash,
+          skipped: true,
+          message: "Content unchanged, no update needed.",
+        });
+      }
+
+      // Step 3a: Upload to MinIO FIRST
+      await s3.send(
+        new PutObjectCommand({
+          Bucket: MINIO_BUCKET,
+          Key: minioKey,
+          Body: content,
+          ContentType: "text/plain",
+        }),
+      );
+
+      // Step 3b: MinIO succeeded → update Postgres atomically
+      newVersion = dbVersion + 1;
+      await client.query(
+        `UPDATE files
+         SET version = $1, hash = $2, last_modified_by = $3, last_updated = NOW()
+         WHERE project_id = $4 AND path = $5`,
+        [newVersion, contentHash, userId, projectId, filePath],
+      );
+    }
+
+    // Update project's updated_at timestamp
+    await client.query(
+      `UPDATE projects SET updated_at = NOW() WHERE id = $1`,
+      [projectId],
+    );
+
+    // ── COMMIT ──
+    await client.query("COMMIT");
+
+    console.log(
+      `[API] Sync OK: user=${userId} project=${projectId} path=${filePath} v${newVersion}`,
+    );
+
+    return res.status(200).json({
+      new_version: newVersion,
+      hash: contentHash,
+      minio_key: minioKey,
+    });
+  } catch (err) {
+    // MinIO failure or any other error → rollback Postgres
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[API] POST /api/project/sync/file error:", err.message || err);
+    return res.status(500).json({ error: "internal error" });
+  } finally {
+    client.release();
+  }
+});
+
+// ---- GET /api/project/file — Pull a specific file (content + metadata) ----
+app.get("/api/project/file", authenticateToken, async (req, res) => {
+  try {
+    const projectId = Number(req.query.project_id);
+    const filePath = req.query.path;
+    const userId = Number(req.user.sub);
+
+    if (!projectId || !filePath) {
+      return res.status(400).json({ error: "project_id and path query params required" });
+    }
+
+    // Verify ownership + get metadata
+    const meta = await pool.query(
+      `SELECT f.id, f.version, f.hash, f.last_modified_by, f.last_updated
+       FROM files f
+       JOIN projects p ON p.id = f.project_id
+       WHERE f.project_id = $1 AND f.path = $2 AND p.owner_id = $3
+       LIMIT 1`,
+      [projectId, filePath, userId],
+    );
+
+    if (meta.rowCount === 0) {
+      return res.status(404).json({ error: "file not found" });
+    }
+
+    // Fetch content from MinIO
+    const minioKey = `${userId}/${projectId}/${filePath}`;
+    const s3Response = await s3.send(
+      new GetObjectCommand({ Bucket: MINIO_BUCKET, Key: minioKey }),
+    );
+    const content = await streamToString(s3Response.Body);
+
+    return res.json({
+      ...meta.rows[0],
+      content,
+      path: filePath,
+      project_id: projectId,
+    });
+  } catch (err) {
+    if (err.name === "NoSuchKey" || err.$metadata?.httpStatusCode === 404) {
+      return res.status(404).json({ error: "file content not found in storage" });
+    }
+    console.error("[API] GET /api/project/file error:", err.message || err);
+    return res.status(500).json({ error: "internal error" });
+  }
+});
+
+// ---- GET /api/project/clone — Kịch bản 2: Pull toàn bộ project (máy mới) ----
+// Trả về danh sách tất cả files kèm content, để client tái tạo thư mục local
+app.get("/api/project/clone", authenticateToken, async (req, res) => {
+  try {
+    const projectId = Number(req.query.project_id);
+    const userId = Number(req.user.sub);
+
+    if (!projectId || !Number.isFinite(projectId)) {
+      return res.status(400).json({ error: "project_id query parameter required" });
+    }
+
+    // 1. Verify ownership + get all file metadata from Postgres
+    const meta = await pool.query(
+      `SELECT f.path, f.version, f.hash
+       FROM files f
+       JOIN projects p ON p.id = f.project_id
+       WHERE f.project_id = $1 AND p.owner_id = $2
+       ORDER BY f.path`,
+      [projectId, userId],
+    );
+
+    if (meta.rowCount === 0) {
+      return res.json({ files: [], message: "Project has no files yet." });
+    }
+
+    // 2. Pull all file contents from MinIO in parallel
+    const filePromises = meta.rows.map(async (row) => {
+      const minioKey = `${userId}/${projectId}/${row.path}`;
+      try {
+        const s3Response = await s3.send(
+          new GetObjectCommand({ Bucket: MINIO_BUCKET, Key: minioKey }),
+        );
+        const content = await streamToString(s3Response.Body);
+        return { path: row.path, version: row.version, hash: row.hash, content };
+      } catch (err) {
+        console.warn(`[API] Clone: failed to pull ${minioKey}:`, err.message);
+        return { path: row.path, version: row.version, hash: row.hash, content: null, error: err.message };
+      }
+    });
+
+    const files = await Promise.all(filePromises);
+    return res.json({ project_id: projectId, files });
+  } catch (err) {
+    console.error("[API] GET /api/project/clone error:", err.message || err);
     return res.status(500).json({ error: "internal error" });
   }
 });

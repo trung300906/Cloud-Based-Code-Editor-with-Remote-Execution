@@ -13,25 +13,32 @@ const { syncManager } = require("./sync-service.js");
  */
 function registerFileIPC(mainWindow) {
   // Lazy require to avoid circular dependency with main.js
-  const { getToken } = require("../../main.js");
+  const { getToken, getProjectId, getWorkspaceRoot } = require("../../main.js");
+
+  /**
+   * Trigger OCC sync after saving a file locally.
+   */
+  function triggerSync(filePath) {
+    const token = getToken();
+    const projectId = getProjectId();
+    const workspaceRoot = getWorkspaceRoot();
+    if (token && projectId) {
+      syncManager.autoSync(filePath, token, projectId, workspaceRoot).catch(console.error);
+    }
+  }
 
   // ---- Save file ----
   ipcMain.on("save-file", (event, { filePath, content }) => {
-    const token = getToken();
     if (filePath) {
       fs.writeFileSync(filePath, content);
       mainWindow.webContents.send("file-saved", filePath);
-      if (token) {
-        syncManager.autoSync(filePath, token).catch(console.error);
-      }
+      triggerSync(filePath);
     } else {
       dialog.showSaveDialog(mainWindow).then((result) => {
         if (!result.canceled) {
           fs.writeFileSync(result.filePath, content);
           mainWindow.webContents.send("file-saved", result.filePath);
-          if (token) {
-            syncManager.autoSync(result.filePath, token).catch(console.error);
-          }
+          triggerSync(result.filePath);
         }
       });
     }

@@ -53,6 +53,18 @@ export function onFolderOpened(data) {
   // Rebuild file index để quick-open có thể search
   state.fileIndex = rebuildFileIndex(data.items, data.folderPath);
 
+  // Đăng ký/lấy project trên server khi mở folder (dùng tên folder làm tên project)
+  const folderName = data.folderPath.split(/[\\/]/).pop();
+  if (window.electronAPI?.setProject) {
+    window.electronAPI.setProject(folderName, data.folderPath).then((result) => {
+      if (result.success) {
+        console.log(`[Sidebar] Project "${folderName}" → id=${result.projectId} (created=${result.created})`);
+      } else {
+        console.warn(`[Sidebar] Could not set project: ${result.error}`);
+      }
+    });
+  }
+
   const fileList = document.getElementById("file-list");
   fileList.innerHTML = "";
 
