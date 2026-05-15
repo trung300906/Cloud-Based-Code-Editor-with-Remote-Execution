@@ -16,9 +16,19 @@ const { syncManager, setupSyncIPC } = require("./src/main/sync-service.js");
 let mainWindow;
 let tcpBootstrapped = false;
 let currentToken = null;
+let currentProjectId = null;   // Active project ID (set after folder open + project create)
+let currentWorkspaceRoot = null; // Absolute path to the workspace root folder
 
 function getToken() {
   return currentToken;
+}
+
+function getProjectId() {
+  return currentProjectId;
+}
+
+function getWorkspaceRoot() {
+  return currentWorkspaceRoot;
 }
 
 // ---- Tạo cửa sổ chính ----
@@ -41,7 +51,7 @@ app.whenReady().then(() => {
   registerFileIPC(mainWindow);
   registerMenuIPC(mainWindow);
   registerWindowIPC(mainWindow);
-  setupSyncIPC(getToken);
+  setupSyncIPC(getToken, getProjectId, getWorkspaceRoot);
 
   // ---- SafeStorage: mã hóa/giải mã token bằng OS keychain ----
   // Linux: GNOME Keyring / KWallet | Windows: DPAPI
@@ -86,6 +96,51 @@ app.whenReady().then(() => {
     }
   });
 
+  // ---- Project Management IPC ----
+  // Renderer calls this when a folder is opened to create/get the project on the server
+  ipcMain.handle("project:set", async (_event, { name, workspaceRoot }) => {
+    try {
+      currentWorkspaceRoot = workspaceRoot || null;
+
+      if (!currentToken || !name) {
+        console.warn("[Main] project:set — no token or name, skipping API call.");
+        currentProjectId = null;
+        return { success: false, error: "Not logged in or no project name" };
+      }
+
+      // Call the server to create/get the project
+      const response = await fetch("http://100.124.23.95:3000/api/project/create", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${currentToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.error || `Project create failed (${response.status})`);
+      }
+
+      currentProjectId = data.project?.id || null;
+      console.log(
+        `[Main] Project set: id=${currentProjectId}, name="${name}", created=${data.created}`,
+      );
+
+      // Pre-load file versions from server → prevents false 409 conflicts on restart
+      if (currentProjectId) {
+        await syncManager.syncVersionsFromServer(currentToken, currentProjectId, currentWorkspaceRoot);
+      }
+
+      return { success: true, projectId: currentProjectId, created: data.created };
+    } catch (err) {
+      console.error("[Main] project:set error:", err.message || err);
+      currentProjectId = null;
+      return { success: false, error: err.message };
+    }
+  });
+
   app.on("activate", () => {
     // macOS: mở lại window khi click icon Dock mà không có window nào
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -96,6 +151,5 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-// Export getToken so ipc-file.js can access the current session token
-module.exports = { getToken };
-
+// Export getters so ipc-file.js can access the current session state
+module.exports = { getToken, getProjectId, getWorkspaceRoot };

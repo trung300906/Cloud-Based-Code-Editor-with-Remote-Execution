@@ -43,7 +43,11 @@ contextBridge.exposeInMainWorld("electronAPI", {
   encryptToken: (plainText) => ipcRenderer.invoke("safe-storage:encrypt", plainText),
   decryptToken: (cipher) => ipcRenderer.invoke("safe-storage:decrypt", cipher),
 
-  // Sync Engine
+  // Project Management
+  setProject: (name, workspaceRoot) => ipcRenderer.invoke("project:set", { name, workspaceRoot }),
+
+  // Sync Engine (OCC)
   onSyncConflict: (callback) => ipcRenderer.on('sync:conflict', (_event, data) => callback(data)),
-  resolveConflict: (filepath, resolvedContent) => ipcRenderer.invoke('sync:resolve', filepath, resolvedContent),
+  resolveConflict: (filepath, resolvedContent, cloudVersion) =>
+    ipcRenderer.invoke('sync:resolve', filepath, resolvedContent, cloudVersion),
 });

@@ -1,0 +1,178 @@
+Phân tích PostgreSQL:
+1. Bảng projects (Quản lý dự án)
+
+Bảng này xác định thực thể dự án và quyền sở hữu.
+
+    id: Khóa chính (Primary Key). Đây chính là project_id trong cấu trúc Key của MinIO.
+
+    owner_id: Khóa ngoại (Foreign Key) liên kết với bảng users. Đây chính là user_id trong Key của MinIO.
+
+    name: Tên dự án (Ví dụ: "ZeraOS-Kernel").
+
+    created_at / updated_at: Thời gian tạo và cập nhật.
+
+2. Bảng files (Mục lục và Kiểm soát phiên bản)
+
+Đây là bảng quan trọng nhất để hiện thực hóa ý tưởng "Git-flow" và "Worker Pull". Nó không lưu code, nhưng nó lưu "bản đồ" của code.
+
+    id: Khóa chính.
+
+    project_id: Liên kết với bảng projects.
+
+    path: Đường dẫn ảo của file tính từ gốc dự án (Ví dụ: src/kernel/main.cpp).
+
+    version: (CỰC KỲ QUAN TRỌNG) Số nguyên tăng dần. Dùng để check conflict (409) khi nhiều người cùng sửa.
+
+    hash: (Tùy chọn) Lưu mã MD5/SHA của nội dung file. Dùng để Client so sánh nhanh xem file local có khác file trên server không trước khi đẩy lên (Sync thông minh).
+
+    last_modified_by: ID của user cuối cùng sửa file này.
+
+Mối quan hệ "Dung hòa" thực tế diễn ra như thế nào?
+
+Khi bạn thực hiện các thao tác trong IDE, hai cơ sở dữ liệu này sẽ "nhìn" nhau theo luồng sau:
+A. Khi vẽ Sidebar (Cây thư mục)
+
+Giao diện không hỏi MinIO. Nó chỉ gửi project_id lên Backend. Backend chạy lệnh:
+SELECT path FROM files WHERE project_id = $1;
+=> PostgreSQL trả về một mảng các đường dẫn. Giao diện dựa vào đó để vẽ ra cây thư mục bên trái cực nhanh mà không cần load bất kỳ byte code nào.
+B. Khi mở một File để sửa
+
+    Giao diện lấy path từ Sidebar.
+
+    Backend kết hợp: owner_id (của project) + project_id + path thành một chuỗi Key.
+
+    Backend dùng Key này để GET nội dung từ MinIO và gửi về cho Monaco Editor.
+
+C. Khi bấm RUN (Mô hình Worker Pull)
+
+    Worker nhận project_id và owner_id.
+
+    Worker hỏi PostgreSQL: "Cho tôi danh sách tất cả path của project_id này".
+
+    Sau khi có danh sách path, Worker mới dùng S3 SDK để tải (Pull) đồng loạt các file tương ứng từ MinIO về ổ cứng vật lý của nó.
+
+    Worker chạy lệnh biên dịch (ví dụ: g++ *.cpp) trên các file thật vừa tải về.
+
+D. Khi giải quyết Conflict (Git-flow của bạn)
+
+    User B gửi yêu cầu Save file main.cpp với version: 1.
+
+    Backend kiểm tra PostgreSQL: Nếu files.version hiện tại đang là 2 (do User A đã lưu trước đó) -> Backend báo lỗi 409 Conflict.
+
+    Backend không hề ghi đè vào MinIO lúc này để bảo vệ code của User A.
+
+    User B nhận lỗi, phải Pull bản version 2 từ MinIO về để thực hiện 3-way merge cục bộ trước khi được phép nâng lên version 3.
+
+Tóm lại:
+
+    PostgreSQL giữ "Bản đồ" (path) và "Trọng tài" (version).
+
+    MinIO giữ "Vật liệu" (Code thô).
+
+
+Câu trả lời ngắn gọn là: Code LUÔN LUÔN nằm trên ổ cứng Local của User. Việc "Lấy code về" hay "Lấy từ Local" phụ thuộc vào việc User đang ở tình huống nào.
+
+Hãy hình dung nó giống hệt cách bạn xài git clone và git pull. Giao diện (Sidebar) của bạn sẽ luôn ưu tiên đọc từ cái thư mục ~/CBCode_Workspace trên ổ cứng thật của người dùng.
+
+Dưới đây là 2 kịch bản thực tế sẽ diễn ra:
+Kịch bản 1: User mở máy tính quen thuộc (Đã có sẵn Project)
+
+    Vẽ Sidebar (Instant load): Khi user bật app Electron lên, file sidebar.js sẽ dùng lệnh fs.readdir quét trực tiếp thư mục ~/CBCode_Workspace/project_A trên ổ cứng máy tính. Cây thư mục hiện ra ngay lập tức (Zero-latency), kể cả khi đứt cáp quang.
+
+    Background Sync (Đồng bộ ngầm): Lúc này, cái SyncManager mà chúng ta viết ban nãy mới bắt đầu thọc tay vào:
+
+        Nó gọi API lên Backend (hỏi PostgreSQL): "Ê Postgres, tao đang có 5 file, version thế này. Mày có file nào mới không?"
+
+        Nếu Postgres bảo: "Có 1 file utils.cpp do thằng B vừa push lên hôm qua, version mới hơn".
+
+        App Electron sẽ lặng lẽ kéo (Pull) file utils.cpp đó từ MinIO về, ghi đè/merge hoặc xử lý conflict rồi ghi xuống ổ cứng Local, rồi báo giao diện chớp (refresh) lại Sidebar một cái.
+
+Kịch bản 2: User ra quán Net hoặc xài máy mới (Local trắng bóc)
+
+Lúc này trên ổ cứng Local chưa có thư mục ~/CBCode_Workspace/project_A. Đây là lúc Postgres và MinIO thể hiện sức mạnh!
+
+    Kiểm tra & Lấy Mục Lục: App gọi lên Backend (PostgreSQL): "Lấy cho tao danh sách file của project_A".
+
+    Pull toàn bộ (Clone): Nhận được danh sách, App Electron dùng lệnh fetch chạy vòng lặp tải toàn bộ code từ MinIO về.
+
+    Tái tạo Local: Nó dùng fs.mkdir và fs.writeFile để dựng lại toàn bộ thư mục project_A y hệt như trên Cloud xuống ổ cứng máy quán Net.
+
+    Vẽ Sidebar: Tải xong xuôi, nó mới gọi sidebar.js quét cái thư mục vừa tạo để vẽ ra giao diện cho User bắt đầu code.
+
+
+1. Phân tích Idea 1 (Quy trình Execute code)
+
+Điểm cực sáng: Việc tống hết lên MinIO theo key user_id/project_id/path là chuẩn xác tuyệt đối! Nó sẽ khớp hoàn hảo với cái bảng files và projects trong PostgreSQL của bạn.
+
+Cái "bẫy" cần tránh: Bạn đề xuất "Client sẽ check các dependency của file execute xem nó link đi đâu rồi gom cụm lại".
+
+👉 Sự thật phũ phàng: Dùng Javascript (phía Client) để đọc hiểu file C++ hay Python xem nó #include hay import cái gì là một ác mộng. Lỡ user dùng Macro C++ hay dynamic import thì Client "bó tay" ngay.
+
+Cách giải quyết thông minh hơn (Lười mà hiệu quả):
+
+Hãy để Trình biên dịch (Compiler) làm việc của nó!
+
+
+Bấm RUN -> Client quét xem file nào bị thay đổi (isModified) -> Đẩy những file đó lên MinIO (cập nhật).
+
+Client gửi lệnh EXECUTE { project_id } qua Gateway.
+
+Worker nhận lệnh -> Tải TOÀN BỘ thư mục project từ MinIO về RAM/Ổ cứng tạm của Worker. (Tải nội bộ trong server siêu nhanh, không tốn băng thông mạng của user).
+
+Worker gõ lệnh g++ *.cpp -o main. Trình biên dịch C++ sẽ tự động tìm các file header và dependency cần thiết trong cái folder đó.
+
+Chạy xong -> Trả kết quả -> Xóa folder tạm.
+
+Như vậy, bạn vừa không bắt Client phải phân tích code nặng nề, vừa đảm bảo Worker có đủ 100% tài nguyên để chạy đúng.
+
+2. Phân tích Idea 2 (Giải quyết Collab cực đỉnh bằng "Git-Flow")
+
+Idea này của bạn: "A lên trước nhận, B lên sau thì báo lỗi bắt Pull về hội ý" — CHUẨN CMNR! Bạn vừa tự mình phát minh ra cơ chế Optimistic Concurrency Control (Kiểm soát đồng thời lạc quan).
+
+Thực tế làm Real-time Collab (như Google Docs thấy con trỏ chuột của nhau) cực kỳ tốn tài nguyên server. Làm theo kiểu "Pull/Push" như Git cho Cloud IDE là sự lựa chọn khôn ngoan nhất.
+
+Cách cài đặt logic này vào hệ thống của bạn:
+
+
+Thêm biến "Version" (Phiên bản): * Trong bảng files của PostgreSQL, bạn thêm một cột version (kiểu số nguyên, mặc định là 1).
+
+Khi Client tải project về, nó biết file main.cpp đang là version 1.
+
+Kịch bản A và B cùng sửa:
+
+A và B cùng mở file main.cpp (Version 1).
+
+A sửa xong, bấm Save. Gói tin gửi lên: { path: "main.cpp", version: 1, content: "..." }.
+
+Server kiểm tra: PostgreSQL thấy version hiện tại là 1. Khớp! Server cho phép ghi đè lên MinIO, và nâng cột version lên 2.
+
+B sửa xong, bấm Save. Gói tin gửi lên: { path: "main.cpp", version: 1, content: "..." }.
+
+Server kiểm tra: PostgreSQL thấy version hiện tại đã là 2 rồi. Thằng B gửi 1 là đồ cũ!
+
+Server từ chối (Reject): Bắn lỗi 409 Conflict về cho B, kèm theo thông báo: "File đã bị thay đổi bởi người khác. Vui lòng Pull về trước!"
+
+B xử lý Conflict (Vòng lặp quay lại cái màn hình Diff):
+
+Client của B nhận được lỗi, tự động tải nội dung Version 2 từ MinIO về.
+
+Kích hoạt cái thuật toán diff-match-patch mà chúng ta vừa làm ban nãy. Bật cái giao diện chia đôi màn hình lên.
+
+B xem xét, bấm "Save Merged Result".
+
+Lúc này B gửi lại gói tin: { path: "main.cpp", version: 2, content: "code_đã_trộn" }.
+
+Server check thấy 2 = 2. Cho qua! Update lên Version 3.
+
+Chốt hạ:
+
+Bạn đã có một bản thiết kế kiến trúc hoàn chỉnh và cực kỳ chặt chẽ:
+
+
+Storage: PostgreSQL (Metadata + Versioning) + MinIO (File Content).
+
+Execution: Client Sync -> Worker Pull -> Compiler handles dependencies.
+
+Collaboration: Version checking -> 409 Conflict -> Local 3-way Merge -> Push again.
+
+
