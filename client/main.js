@@ -233,6 +233,7 @@ app.whenReady().then(() => {
       else if (data && data.stderr) outputText = data.stderr;
       else outputText = JSON.stringify(data);
       
+      console.log(`[Main] Sending terminal-output IPC: ${JSON.stringify(outputText)}`);
       mainWindow.webContents.send("terminal-output", outputText);
     }
   });

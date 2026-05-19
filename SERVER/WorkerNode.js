@@ -11,6 +11,7 @@ const {
     GetObjectCommand,
 } = require('@aws-sdk/client-s3');
 const HeartbeatWorker       = require('./HearthbeatWorker.js');
+const { encryptPayload } = require('../Middleware/cryptoUtils.js');
 
 // ─── ĐÃ ĐỒNG BỘ TỪ ĐIỂN TYPE VỚI GATEWAY ────────────────────────
 const TYPE = {

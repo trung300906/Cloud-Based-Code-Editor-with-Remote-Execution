@@ -3,7 +3,7 @@
 const net = require("net");
 const { createClient } = require("redis");
 const HeartbeatServer = require("./HearthbeatServer.js");
-const { decryptPayload, verifyJwt } = require("./cryptoUtils.js");
+const { decryptPayload, encryptPayload, verifyJwt } = require("./cryptoUtils.js");
 const { startAuthService } = require("./auth-service/server.js");
 
 // ─── REDIS CLIENT ──────────────────────────────────────────────
@@ -69,14 +69,18 @@ const START_AUTH_SERVICE =
   String(process.env.GATEWAY_START_AUTH ?? "1") !== "0";
 
 // ─── CÔNG CỤ ĐÓNG/MỞ GÓI (FRAME PARSER) ─────────────────────────
-function buildFrame(type, requestId, data) {
+function buildFrame(type, requestId, data, opts = {}) {
   const idBuf = Buffer.from(requestId, "utf8");
   const idLenBuf = Buffer.alloc(4);
   idLenBuf.writeUInt32BE(idBuf.length);
   const dataBuf = Buffer.isBuffer(data)
     ? data
     : Buffer.from(data ?? "", "utf8");
-  const payload = Buffer.concat([idLenBuf, idBuf, dataBuf]);
+  const plainPayload = Buffer.concat([idLenBuf, idBuf, dataBuf]);
+  
+  const encrypt = opts.encrypt ?? type !== TYPE.PING;
+  const payload = encrypt ? encryptPayload(plainPayload) : plainPayload;
+
   const header = Buffer.alloc(5);
   header.writeUInt32BE(payload.length, 0);
   header[4] = type;
@@ -607,7 +611,7 @@ class GatewayServer {
        dataJson.clientId = clientSocket.userId;
        
        // Đóng gói lại (Re-pack) - không mã hóa vì Worker đọc plain text
-       finalFrame = buildFrame(type, requestId, JSON.stringify(dataJson));
+       finalFrame = buildFrame(type, requestId, JSON.stringify(dataJson), { encrypt: false });
     } catch(err) {
        _log("error", `[Router] Failed to inject owner_id into payload: ${err.message}`);
     }
@@ -637,9 +641,26 @@ class GatewayServer {
       workerSocket.write(finalFrame);
     });
 
-    // Hứng Stream kết quả (Stdout/Stderr/Exit) từ Worker và đập thẳng về mặt Client
+    // Hứng Stream kết quả từ Worker, mã hóa lại rồi mới gửi về Client
+    const workerParser = new FrameParser(
+      (workerType, workerPayload) => {
+        const encrypt = workerType !== TYPE.PING;
+        const finalPayload = encrypt ? encryptPayload(workerPayload) : workerPayload;
+        
+        const header = Buffer.alloc(5);
+        header.writeUInt32BE(finalPayload.length, 0);
+        header[4] = workerType;
+        const encryptedFrame = Buffer.concat([header, finalPayload]);
+        
+        if (!clientSocket.destroyed) clientSocket.write(encryptedFrame);
+      },
+      (err) => {
+        _log("error", `[Router] Lỗi parse frame từ Worker: ${err.message}`);
+      }
+    );
+
     workerSocket.on("data", (chunk) => {
-      if (!clientSocket.destroyed) clientSocket.write(chunk);
+      workerParser.feed(chunk);
     });
 
     workerSocket.on("error", (err) => {
