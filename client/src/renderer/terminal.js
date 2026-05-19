@@ -1,75 +1,38 @@
 const Terminal = window.Terminal;
 const FitAddon = window.FitAddon?.FitAddon || window.FitAddon;
 
-let term;
-let fitAddon;
+const terminals = new Map(); // id -> { term, fitAddon, container, name }
+let activeTerminalId = null;
+
+let terminalWrapper;
 let terminalContainer;
 let terminalResizeHandle;
+let terminalSelect;
+let terminalAddBtn;
+let terminalKillBtn;
+let terminalCloseBtn;
 
 let isLocked = false;
 let isGatewayExecution = false;
 
+// Format \n to \r\n for xterm.js
+function formatOutput(data) {
+  if (typeof data !== 'string') return data;
+  return data.replace(/\r?\n/g, '\r\n');
+}
+
 export function initTerminal() {
+  terminalWrapper = document.getElementById("terminal-wrapper");
   terminalContainer = document.getElementById("terminal-container");
   terminalResizeHandle = document.getElementById("terminal-resize-handle");
-  if (!terminalContainer) return;
+  terminalSelect = document.getElementById("terminal-select");
+  terminalAddBtn = document.getElementById("terminal-add-btn");
+  terminalKillBtn = document.getElementById("terminal-kill-btn");
+  terminalCloseBtn = document.getElementById("terminal-close-btn");
 
-  term = new Terminal({
-    theme: {
-      background: "#000000",
-      foreground: "#ffffff",
-    },
-    cursorBlink: true,
-    fontFamily: 'monospace',
-    fontSize: 14,
-  });
+  if (!terminalWrapper) return;
 
-  fitAddon = new FitAddon();
-  term.loadAddon(fitAddon);
-
-  if (window.electronAPI) {
-    // Start PTY in backend
-    window.electronAPI.startPty();
-
-    // Listen to output from PTY
-    window.electronAPI.onPtyOutput((data) => {
-      term.write(data);
-    });
-
-    // Handle normal shell input
-    term.onData((data) => {
-      if (isLocked) {
-        if (isGatewayExecution && data === '\r') {
-          // User pressed Enter after execution finished
-          unlockTerminal();
-        }
-        return;
-      }
-      window.electronAPI.sendPtyInput(data);
-    });
-    
-    // When resizing the terminal, tell PTY
-    term.onResize(({ cols, rows }) => {
-      window.electronAPI.resizePty(cols, rows);
-    });
-
-    // Listen to outputs from Gateway code execution
-    window.electronAPI.onTerminalOutput((data) => {
-      if (!isLocked) return;
-      
-      // Chuyển đổi \n thành \r\n để xterm.js hiển thị đúng cột
-      const formattedData = data.replace(/\r?\n/g, '\r\n');
-      term.write(formattedData);
-      
-      // Chỉ báo hoàn thành khi nhận được tín hiệu thoát từ WorkerNode
-      if (data.includes('[Process Exited:')) {
-        term.write('\r\n\x1b[1;32mExecution finished. Press Enter to continue...\x1b[0m\r\n');
-        isGatewayExecution = true;
-      }
-    });
-  }
-
-  // Simple vertical resize logic
+  // Resize logic
   let isResizing = false;
   terminalResizeHandle.addEventListener("mousedown", (e) => {
     isResizing = true;
@@ -78,11 +41,11 @@ export function initTerminal() {
 
   document.addEventListener("mousemove", (e) => {
     if (!isResizing) return;
-    const containerRect = document.querySelector(".container").getBoundingClientRect();
-    const newHeight = containerRect.bottom - e.clientY;
-    if (newHeight > 100 && newHeight < containerRect.height - 100) {
-      terminalContainer.style.height = newHeight + "px";
-      fitAddon.fit();
+    const newHeight = window.innerHeight - e.clientY;
+    if (newHeight > 100 && newHeight < window.innerHeight - 100) {
+      terminalWrapper.style.height = newHeight + "px";
+      const activeTerm = terminals.get(activeTerminalId);
+      if (activeTerm) activeTerm.fitAddon.fit();
     }
   });
 
@@ -92,26 +55,169 @@ export function initTerminal() {
       document.body.style.cursor = "default";
     }
   });
+
+  // UI Event Listeners
+  terminalAddBtn.addEventListener("click", () => createTerminal());
+  terminalKillBtn.addEventListener("click", () => killTerminal(activeTerminalId));
+  terminalCloseBtn.addEventListener("click", hideTerminal);
+  
+  terminalSelect.addEventListener("change", (e) => {
+    switchTerminal(e.target.value);
+  });
+
+  if (window.electronAPI) {
+    // Listen to output from PTY
+    window.electronAPI.onPtyOutput((payload) => {
+      const { id, data } = payload;
+      const termObj = terminals.get(id);
+      if (termObj && !isLocked) {
+        termObj.term.write(data);
+      }
+    });
+
+    window.electronAPI.onPtyExit((id) => {
+      removeTerminalFromUI(id);
+    });
+
+    // Listen to outputs from Gateway code execution
+    window.electronAPI.onTerminalOutput((data) => {
+      if (!isLocked) return;
+      const activeTerm = terminals.get(activeTerminalId);
+      if (!activeTerm) return;
+
+      activeTerm.term.write(formatOutput(data));
+      
+      if (data.includes('[Process Exited:')) {
+        activeTerm.term.write('\r\n\x1b[1;32mExecution finished. Press Enter to continue...\x1b[0m\r\n');
+        isGatewayExecution = true;
+      }
+    });
+  }
+
+  // Create default terminal on load
+  createTerminal("bash");
+}
+
+async function createTerminal(namePrefix = "bash") {
+  const termObj = {
+    name: `${namePrefix} ${terminals.size + 1}`,
+    container: document.createElement("div")
+  };
+  
+  termObj.container.style.width = "100%";
+  termObj.container.style.height = "100%";
+  termObj.container.style.display = "none";
+  terminalContainer.appendChild(termObj.container);
+
+  termObj.term = new Terminal({
+    theme: { background: "#000000", foreground: "#ffffff" },
+    cursorBlink: true,
+    fontFamily: 'monospace',
+    fontSize: 14,
+  });
+
+  termObj.fitAddon = new FitAddon();
+  termObj.term.loadAddon(termObj.fitAddon);
+  termObj.term.open(termObj.container);
+
+  let id = null;
+  if (window.electronAPI) {
+    id = await window.electronAPI.startPty();
+    
+    termObj.term.onData((data) => {
+      if (isLocked) {
+        if (isGatewayExecution && data === '\r') {
+          unlockTerminal();
+        }
+        return;
+      }
+      window.electronAPI.sendPtyInput(id, data);
+    });
+    
+    termObj.term.onResize(({ cols, rows }) => {
+      window.electronAPI.resizePty(id, cols, rows);
+    });
+  } else {
+    id = "local_" + Date.now();
+  }
+
+  terminals.set(id, termObj);
+
+  // Add to dropdown
+  const option = document.createElement("option");
+  option.value = id;
+  option.textContent = termObj.name;
+  terminalSelect.appendChild(option);
+
+  switchTerminal(id);
+  
+  // Fit later to ensure DOM is updated
+  setTimeout(() => termObj.fitAddon.fit(), 50);
+}
+
+function switchTerminal(id) {
+  if (!terminals.has(id)) return;
+  
+  terminals.forEach((termObj, key) => {
+    termObj.container.style.display = key === id ? "block" : "none";
+  });
+  
+  activeTerminalId = id;
+  terminalSelect.value = id;
+  
+  const activeTerm = terminals.get(id);
+  activeTerm.fitAddon.fit();
+  activeTerm.term.focus();
+}
+
+function removeTerminalFromUI(id) {
+  if (!terminals.has(id)) return;
+  const termObj = terminals.get(id);
+  
+  // Remove from DOM
+  termObj.term.dispose();
+  termObj.container.remove();
+  terminals.delete(id);
+  
+  // Remove from Select
+  const option = terminalSelect.querySelector(`option[value="${id}"]`);
+  if (option) option.remove();
+
+  if (terminals.size === 0) {
+    createTerminal(); // always keep at least one
+  } else if (activeTerminalId === id) {
+    // Switch to another terminal
+    const nextId = terminals.keys().next().value;
+    switchTerminal(nextId);
+  }
+}
+
+function killTerminal(id) {
+  if (!id) return;
+  if (window.electronAPI) {
+    window.electronAPI.closePty(id);
+  }
+  removeTerminalFromUI(id);
 }
 
 export function showTerminal() {
-  if (terminalContainer.style.display === "none") {
-    terminalContainer.style.display = "block";
+  if (terminalWrapper.style.display === "none") {
+    terminalWrapper.style.display = "flex";
     terminalResizeHandle.style.display = "block";
-    if (!term.element) {
-      term.open(terminalContainer);
+    const activeTerm = terminals.get(activeTerminalId);
+    if (activeTerm) {
+      setTimeout(() => activeTerm.fitAddon.fit(), 10);
     }
-    fitAddon.fit();
   }
 }
 
 export function hideTerminal() {
-  terminalContainer.style.display = "none";
+  terminalWrapper.style.display = "none";
   terminalResizeHandle.style.display = "none";
 }
 
 export function toggleTerminal() {
-  if (terminalContainer.style.display === "none") {
+  if (terminalWrapper.style.display === "none") {
     showTerminal();
   } else {
     hideTerminal();
@@ -119,12 +225,14 @@ export function toggleTerminal() {
 }
 
 export function clearTerminal() {
-  term.clear();
+  const activeTerm = terminals.get(activeTerminalId);
+  if (activeTerm) activeTerm.term.clear();
 }
 
 export function writeTerminal(text) {
   showTerminal();
-  term.write(text);
+  const activeTerm = terminals.get(activeTerminalId);
+  if (activeTerm) activeTerm.term.write(formatOutput(text));
 }
 
 export function lockTerminalForExecution(lang) {
@@ -132,15 +240,20 @@ export function lockTerminalForExecution(lang) {
   isGatewayExecution = false;
   showTerminal();
   clearTerminal();
-  term.write(`\x1b[33m🚀 Executing ${lang} code on Gateway...\x1b[0m\r\n`);
+  const activeTerm = terminals.get(activeTerminalId);
+  if (activeTerm) {
+    activeTerm.term.write(`\x1b[33m🚀 Executing ${lang} code on Gateway...\x1b[0m\r\n`);
+  }
 }
 
 export function unlockTerminal() {
   isLocked = false;
   isGatewayExecution = false;
-  term.clear();
-  // Press enter in PTY to restore the prompt
-  if (window.electronAPI) {
-    window.electronAPI.sendPtyInput('\r');
+  const activeTerm = terminals.get(activeTerminalId);
+  if (activeTerm) {
+    activeTerm.term.clear();
+    if (window.electronAPI) {
+      window.electronAPI.sendPtyInput(activeTerminalId, '\r');
+    }
   }
 }
