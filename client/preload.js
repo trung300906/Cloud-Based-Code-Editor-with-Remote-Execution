@@ -59,8 +59,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onTerminalOutput: (cb) => ipcRenderer.on('terminal-output', (e, data) => cb(data)),
   
   // PTY events
-  startPty: () => ipcRenderer.send('terminal-pty-start'),
-  sendPtyInput: (data) => ipcRenderer.send('terminal-pty-input', data),
-  resizePty: (cols, rows) => ipcRenderer.send('terminal-pty-resize', { cols, rows }),
-  onPtyOutput: (cb) => ipcRenderer.on('terminal-pty-output', (e, data) => cb(data)),
+  startPty: (terminalId) => ipcRenderer.invoke('terminal-pty-start', terminalId),
+  sendPtyInput: (id, data) => ipcRenderer.send('terminal-pty-input', { id, data }),
+  resizePty: (id, cols, rows) => ipcRenderer.send('terminal-pty-resize', { id, cols, rows }),
+  closePty: (id) => ipcRenderer.send('terminal-pty-close', id),
+  onPtyOutput: (cb) => ipcRenderer.on('terminal-pty-output', (e, payload) => cb(payload)),
+  onPtyExit: (cb) => ipcRenderer.on('terminal-pty-exit', (e, id) => cb(id)),
 });
