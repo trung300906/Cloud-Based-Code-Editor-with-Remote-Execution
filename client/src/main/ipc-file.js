@@ -1,6 +1,6 @@
-// =====================================================================
+ 
 // IPC FILE — save-file, request-read-file, request-open-folder, create-entry
-// =====================================================================
+ 
 const { ipcMain, dialog } = require("electron");
 const path = require("node:path");
 const fs = require("fs");

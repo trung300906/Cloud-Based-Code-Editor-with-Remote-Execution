@@ -1,6 +1,6 @@
-// =====================================================================
+ 
 // QUICK OPEN — Command palette (>) và file search (Ctrl+P)
-// =====================================================================
+ 
 import { state } from "./state.js";
 import { getFileIcon } from "./icons.js";
 import { isBinaryFile, escapeHtml, highlightMatch } from "./utils.js";

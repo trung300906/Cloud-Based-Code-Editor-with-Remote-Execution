@@ -1,7 +1,7 @@
-// =====================================================================
+ 
 // MAIN PROCESS — Entry point (slim)
 // IPC handlers được tách vào src/main/ipc-*.js
-// =====================================================================
+ 
 const { app, BrowserWindow, Menu, ipcMain, safeStorage } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");

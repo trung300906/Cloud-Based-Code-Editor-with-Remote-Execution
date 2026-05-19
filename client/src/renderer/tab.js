@@ -1,9 +1,9 @@
-// =====================================================================
+ 
 // TAB — Quản lý tabs trong mỗi pane (mở, đóng, activate, build DOM)
 //
 // Circular imports với pane.js và drag-drop.js là có chủ đích và an toàn
 // (tất cả cross-references xảy ra trong function bodies, không phải init)
-// =====================================================================
+ 
 import { state } from "./state.js";
 import { detectLanguage } from "./lang-detect.js";
 import { BC_ICON, getBcFileIcon } from "./icons.js";

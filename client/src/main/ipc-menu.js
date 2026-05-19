@@ -1,6 +1,6 @@
-// =====================================================================
+ 
 // IPC MENU — menu-new-file, menu-open-file, menu-open-folder, menu-save
-// =====================================================================
+ 
 const { ipcMain, dialog } = require("electron");
 const fs = require("fs");
 const { buildTree } = require("./file-utils");

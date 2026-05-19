@@ -1,7 +1,7 @@
-// =====================================================================
+ 
 // SYNC SERVICE — OCC-based Git-like Sync Engine (Phase 2)
 // Uses version tracking + 409 Conflict handling with 3-way merge
-// =====================================================================
+ 
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");

@@ -1,11 +1,11 @@
-// =====================================================================
+ 
 // PANE — Quản lý pane system (leaf panes, recursive split tree, focus)
 //
 // Circular imports với tab.js là có chủ đích và an toàn:
 // - pane.js dùng activateTabInPane, appendTabElToPane, openOrActivateTab
 //   từ tab.js — nhưng chỉ trong function bodies (không phải init code)
 // - ES modules xử lý circular fine với live bindings
-// =====================================================================
+ 
 import { state } from "./state.js";
 import { detectLanguage } from "./lang-detect.js";
 import { initSplitHandleResize } from "./split-resize.js";

@@ -1,14 +1,14 @@
-// =====================================================================
+ 
 // SIDEBAR — File Explorer tree, toolbar actions, resize handle
-// =====================================================================
+ 
 import { state, LS } from "./state.js";
 import { SVG, getFileIcon } from "./icons.js";
 import { isBinaryFile, isViewableFile, rebuildFileIndex } from "./utils.js";
 import { openOrActivateTab, openViewerTab } from "./tab.js";
 
-// =====================================================================
+ 
 // TREE STATE PERSISTENCE
-// =====================================================================
+ 
 
 /** Lưu danh sách folder đang expanded vào localStorage. */
 export function saveTreeState() {
@@ -36,9 +36,9 @@ function restoreExpandedState() {
   });
 }
 
-// =====================================================================
+ 
 // FOLDER OPENED — build file tree DOM từ data gửi từ main process
-// =====================================================================
+ 
 
 /**
  * Handler cho event 'folder-opened' từ Electron IPC.
@@ -188,9 +188,9 @@ function buildFileLabel(item) {
   return label;
 }
 
-// =====================================================================
+ 
 // SIDEBAR TOOLBAR — New File / New Folder / Refresh / Collapse All
-// =====================================================================
+ 
 
 /** Inject toolbar vào đầu sidebar. Chỉ tạo một lần. */
 export function buildSidebarToolbar() {
@@ -242,9 +242,9 @@ export function buildSidebarToolbar() {
   });
 }
 
-// =====================================================================
+ 
 // INLINE NAME INPUT — tạo file / folder mới ngay trong tree
-// =====================================================================
+ 
 
 function showNameInput(dirPath, type) {
   document.getElementById("inline-name-input-item")?.remove();
@@ -293,9 +293,9 @@ function showNameInput(dirPath, type) {
   input.addEventListener("blur", () => setTimeout(() => li.remove(), 150));
 }
 
-// =====================================================================
+ 
 // SIDEBAR RESIZE HANDLE — kéo divider để thay đổi width sidebar
-// =====================================================================
+ 
 
 /** Khởi tạo sidebar resize handle (kéo từ trái editor sang). */
 export function initResizeHandle() {

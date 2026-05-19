@@ -1,6 +1,6 @@
-// =====================================================================
+ 
 // BREADCRUMB — cập nhật thanh path bên dưới tab bar của mỗi pane
-// =====================================================================
+ 
 import { state } from "./state.js";
 import { BC_ICON, getBcFileIcon } from "./icons.js";
 import { getFocusedPane } from "./pane.js"; // circular với pane→tab→breadcrumb, OK vì dùng trong function body

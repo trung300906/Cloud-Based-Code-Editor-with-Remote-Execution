@@ -1,7 +1,7 @@
-// =====================================================================
+ 
 // STATE — Trạng thái runtime toàn cục của renderer
 // Tất cả module import { state } và đọc/ghi state.X
-// =====================================================================
+ 
 
 /** Mutable state object — share bằng object reference, không cần getter/setter */
 export const state = {
