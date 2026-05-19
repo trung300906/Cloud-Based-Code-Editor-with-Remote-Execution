@@ -21,6 +21,7 @@ let tcpBootstrapped = false;
 let currentToken = null;
 let currentProjectId = null;   // Active project ID (set after folder open + project create)
 let currentWorkspaceRoot = null; // Absolute path to the workspace root folder
+let currentRunId = null;       // Active code execution request ID
 
 function getToken() {
   return currentToken;
@@ -240,13 +241,21 @@ app.whenReady().then(() => {
 
   ipcMain.on("run-code", (_event, data) => {
     console.log(`[Main] Requesting remote code execution (lang: ${data.lang})...`);
-    tcpClient.send(tcpClient.TYPE.RUN, "run_" + Date.now(), {
+    currentRunId = "run_" + Date.now();
+    tcpClient.send(tcpClient.TYPE.RUN, currentRunId, {
        action: "execute",
        language: data.lang,
        code: data.code,
        projectId: currentProjectId,
        entryPoint: data.entryPoint || "main.cpp"
     }, { encrypt: true });
+  });
+
+  ipcMain.on("run-input", (_event, inputData) => {
+    console.log(`[Main] Sending run-input for ${currentRunId}: ${JSON.stringify(inputData)}`);
+    if (currentRunId) {
+      tcpClient.send(tcpClient.TYPE.INPUT, currentRunId, Buffer.from(inputData, 'utf8'), { encrypt: true });
+    }
   });
 
   app.on("activate", () => {

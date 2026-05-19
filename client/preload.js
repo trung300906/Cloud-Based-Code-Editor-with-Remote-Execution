@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // Terminal & Run Code
   sendRunCode: (data) => ipcRenderer.send('run-code', data),
+  sendRunInput: (data) => ipcRenderer.send('run-input', data),
   onTerminalOutput: (cb) => ipcRenderer.on('terminal-output', (e, data) => cb(data)),
   
   // PTY events

@@ -126,10 +126,34 @@ async function createTerminal(namePrefix = "bash") {
     id = await window.electronAPI.startPty();
     
     termObj.term.onData((data) => {
+      console.log(`[Terminal] Key pressed, isLocked: ${isLocked}, isGatewayExecution: ${isGatewayExecution}, key: ${JSON.stringify(data)}`);
       if (isLocked) {
-        if (isGatewayExecution && data === '\r') {
-          unlockTerminal();
+        if (isGatewayExecution) {
+          if (data === '\r') unlockTerminal();
+          return;
         }
+        
+        const translatedData = data.replace(/\r/g, '\n');
+        console.log(`[Terminal] Sending run-input: ${JSON.stringify(translatedData)}`);
+        
+        // Gửi input lên Gateway (\r phải đổi thành \n để C++/Python nhận diện Enter)
+        if (window.electronAPI.sendRunInput) {
+          window.electronAPI.sendRunInput(translatedData);
+        }
+        
+        // Local Echo
+        if (data === '\r') {
+          termObj.term.write('\r\n');
+        } else if (data === '\x7F') {
+          // Xoá lùi ký tự (Backspace)
+          termObj.term.write('\b \b');
+        } else if (data === '\x03') {
+          // Bấm Ctrl+C, hiện ra ^C rồi đợi Gateway dập
+          termObj.term.write('^C\r\n');
+        } else {
+          termObj.term.write(data);
+        }
+        
         return;
       }
       window.electronAPI.sendPtyInput(id, data);

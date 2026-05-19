@@ -61,6 +61,7 @@ const TYPE = {
   CURSOR: 0x04,
   CHAT: 0x05,
   RESULT: 0x06,
+  INPUT: 0x07,
   PING: 0xff,
 };
 
@@ -163,8 +164,9 @@ class GatewayServer {
   constructor(port = 8080) {
     this.gatewayPort = port;
     this.heartbeat = new HeartbeatServer({ port: 4000 });
-    this.activeClients = new Map(); // Quản lý kết nối
-
+    this.activeClients = new Map(); // clientId -> socket
+    this.activeRuns = new Map(); // requestId -> workerSocket
+    this.server = net.createServer(this._handleConnection.bind(this));
     this.healthTickMs = Number(process.env.GATEWAY_HEALTH_TICK_MS || 5000);
     this._healthTimer = null;
     this._healthWasBad = false;
@@ -546,6 +548,9 @@ class GatewayServer {
               type
             ).catch(console.error);
             break;
+          case TYPE.INPUT:
+            this._routeInputToWorker(plainPayload);
+            break;
           case TYPE.EDIT:
           case TYPE.CURSOR:
           case TYPE.CHAT:
@@ -668,11 +673,39 @@ class GatewayServer {
         "error",
         `[Router] Lỗi nối xuống Worker (${bestWorker.nodeId}): ${err.message}`,
       );
+      this.activeRuns.delete(requestId);
       if (!clientSocket.destroyed)
         clientSocket.write(
           buildFrame(TYPE.ERR, requestId, "Lỗi Server Nội Bộ"),
         );
     });
+
+    workerSocket.on("close", () => {
+      this.activeRuns.delete(requestId);
+    });
+    
+    // Store in activeRuns map
+    this.activeRuns.set(requestId, workerSocket);
+  }
+
+  // ─── ROUTE INPUT TỚI ĐÚNG WORKER ĐANG CHẠY ──────────────────────
+  _routeInputToWorker(payload) {
+    if (!Buffer.isBuffer(payload) || payload.length < 4) return;
+    const idLen = payload.readUInt32BE(0);
+    if (payload.length < 4 + idLen) return;
+    const requestId = payload.subarray(4, 4 + idLen).toString("utf8");
+    const inputBuf = payload.subarray(4 + idLen);
+
+    console.log(`[Gateway] Nhận INPUT cho ${requestId}: ${JSON.stringify(inputBuf.toString('utf8'))}`);
+
+    const workerSocket = this.activeRuns.get(requestId);
+    if (workerSocket && !workerSocket.destroyed) {
+      // Build plain frame since worker reads plain text
+      const frame = buildFrame(TYPE.INPUT, requestId, inputBuf, { encrypt: false });
+      workerSocket.write(frame);
+    } else {
+      _log("warn", `[Router] Nhận INPUT cho job đã tắt hoặc không tồn tại: ${requestId}`);
+    }
   }
 }
 

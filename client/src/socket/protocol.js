@@ -10,6 +10,7 @@ const TYPE = {
   CURSOR: 0x04,
   CHAT: 0x05,
   RESULT: 0x06,
+  INPUT: 0x07,
   PING: 0xff,
 };
 
