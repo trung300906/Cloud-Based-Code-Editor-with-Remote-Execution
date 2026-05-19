@@ -89,7 +89,16 @@ function verifyJwt(token, secret = loadHmacSecret()) {
   return { ok: true, payload };
 }
 
+function encryptPayload(plainBuffer) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", AES_KEY, iv);
+  const encrypted = Buffer.concat([cipher.update(plainBuffer), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return Buffer.concat([iv, tag, encrypted]);
+}
+
 module.exports = {
+  encryptPayload,
   decryptPayload,
   verifyJwt,
 };

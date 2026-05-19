@@ -81,6 +81,7 @@ export function initTerminal() {
 
     // Listen to outputs from Gateway code execution
     window.electronAPI.onTerminalOutput((data) => {
+      console.log(`[Renderer] onTerminalOutput received (isLocked=${isLocked}):`, data);
       if (!isLocked) return;
       const activeTerm = terminals.get(activeTerminalId);
       if (!activeTerm) return;

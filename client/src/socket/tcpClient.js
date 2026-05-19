@@ -111,7 +111,7 @@ client.on("data", (chunk) => {
     }
 
     const decoded = decodeFramePayload(parsed.type, parsed.payload, {
-      decrypt: false,
+      decrypt: parsed.type !== TYPE.PING,
     });
     if (!decoded) continue;
 
