@@ -22,6 +22,7 @@ const TYPE = {
     CURSOR: 0x04,
     CHAT:   0x05,
     RESULT: 0x06,
+    INPUT:  0x07,
     PING:   0xFF
 };
 
@@ -86,7 +87,7 @@ const MINIO_USER = process.env.MINIO_USER || 'minioadmin';
 const MINIO_PASS = process.env.MINIO_PASS || 'minioadmin';
 const MINIO_BUCKET = process.env.MINIO_BUCKET || 'cloud-ide';
 
-const EXEC_TIMEOUT_MS = Number(process.env.EXEC_TIMEOUT_MS || 10000);
+const EXEC_TIMEOUT_MS = Number(process.env.EXEC_TIMEOUT_MS || 300000);
 const WORKER_SLOTS = Number(process.env.WORKER_SLOTS || 10);
 const QUEUE_TIMEOUT_MS = Number(process.env.JOB_QUEUE_TIMEOUT_MS || 30000);
 
@@ -99,6 +100,9 @@ const s3 = new S3Client({
     },
     forcePathStyle: true,
 });
+
+const pendingRequests = new Map();
+const activeProcesses = new Map();
 
 async function streamToBuffer(body) {
     if (!body) return Buffer.alloc(0);
@@ -190,7 +194,7 @@ function _quoteSh(str) {
     return `'${String(str).replace(/'/g, "'\\''")}'`;
 }
 
-async function runCppJob({ jobDir, entryPoint, timeoutMs, onStdout, onStderr }) {
+async function runCppJob({ jobDir, entryPoint, timeoutMs, childProcessRef, onStdout, onStderr }) {
     const entry = String(entryPoint || '').trim();
     if (!entry) throw new Error('missing entryPoint');
     if (path.isAbsolute(entry)) throw new Error('entryPoint must be relative');
@@ -206,10 +210,12 @@ async function runCppJob({ jobDir, entryPoint, timeoutMs, onStdout, onStderr }) 
 
     const child = spawn('sh', ['-lc', cmd], {
         cwd: jobDir,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: ['pipe', 'pipe', 'pipe'],
         env: process.env,
         detached: true,
     });
+
+    childProcessRef(child);
 
     child.stdout.on('data', onStdout);
     child.stderr.on('data', onStderr);
@@ -236,7 +242,7 @@ async function runCppJob({ jobDir, entryPoint, timeoutMs, onStdout, onStderr }) 
     return { ...result, timedOut };
 }
 
-async function runPythonJob({ jobDir, entryPoint, timeoutMs, onStdout, onStderr }) {
+async function runPythonJob({ jobDir, entryPoint, timeoutMs, childProcessRef, onStdout, onStderr }) {
     const entry = String(entryPoint || '').trim();
     if (!entry) throw new Error('missing entryPoint');
     if (path.isAbsolute(entry)) throw new Error('entryPoint must be relative');
@@ -252,10 +258,12 @@ async function runPythonJob({ jobDir, entryPoint, timeoutMs, onStdout, onStderr 
 
     const child = spawn('sh', ['-lc', cmd], {
         cwd: jobDir,
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: ['pipe', 'pipe', 'pipe'],
         env: process.env,
         detached: true,
     });
+
+    childProcessRef(child);
 
     child.stdout.on('data', onStdout);
     child.stderr.on('data', onStderr);
@@ -336,8 +344,6 @@ async function main() {
     const GATEWAY_HOST = process.env.GATEWAY_HOST          || '192.168.122.224';
     const GATEWAY_PORT = Number(process.env.GATEWAY_HB_PORT || 4000);
     const NODE_ID      = process.env.NODE_ID               || `worker-${os.hostname()}`;
-
-    const pendingRequests = new Map();
 
     console.log('[WorkerNode] Phase 3 — Worker Pull Execution Model');
     console.log(`[WorkerNode] MinIO endpoint=${MINIO_ENDPOINT} bucket=${MINIO_BUCKET}`);
@@ -426,6 +432,7 @@ async function main() {
                             jobDir,
                             entryPoint,
                             timeoutMs: EXEC_TIMEOUT_MS,
+                            childProcessRef: (child) => activeProcesses.set(rid, child),
                             onStdout: (chunk) => {
                                 if (sock.writable) sock.write(buildFrame(TYPE.RESULT, rid, chunk));
                             },
@@ -438,6 +445,7 @@ async function main() {
                             jobDir,
                             entryPoint,
                             timeoutMs: EXEC_TIMEOUT_MS,
+                            childProcessRef: (child) => activeProcesses.set(rid, child),
                             onStdout: (chunk) => {
                                 if (sock.writable) sock.write(buildFrame(TYPE.RESULT, rid, chunk));
                             },
@@ -448,6 +456,8 @@ async function main() {
                     } else {
                         throw new Error(`unsupported language: ${language}`);
                     }
+                    
+                    activeProcesses.delete(rid);
 
                     if (result.timedOut) {
                         if (sock.writable) {
@@ -468,12 +478,12 @@ async function main() {
                     }
                 } catch (err) {
                     if (sock.writable) {
-                        sock.write(buildFrame(TYPE.ERROR, rid, err?.message || 'internal error'));
+                        sock.write(buildFrame(TYPE.ERROR, rid, `Execution failed: ${err.message}`));
                     }
                 } finally {
-                    // Guaranteed cleanup
-                    await fse.remove(jobDir).catch(() => null);
+                    activeProcesses.delete(rid);
                     pendingRequests.delete(rid);
+                    await fse.remove(jobDir).catch(() => {});
                 }
             },
         });
@@ -485,11 +495,26 @@ async function main() {
 
         const parser = new FrameParser(
             (type, payload) => {
-                if (type !== TYPE.RUN) return; // SỬA QUAN TRỌNG: Lắng nghe TYPE.RUN thay vì EXEC_REQ
+                if (type !== TYPE.RUN && type !== TYPE.INPUT) return;
                 const parsed = parseFramePayload(payload);
                 if (!parsed) return;
-                // Phase 3: body is a JSON string buffer
-                handleExec(socket, parsed.requestId, parsed.body);
+                
+                if (type === TYPE.RUN) {
+                    handleExec(socket, parsed.requestId, parsed.body);
+                } else if (type === TYPE.INPUT) {
+                    const child = activeProcesses.get(parsed.requestId);
+                    if (child && child.stdin) {
+                        if (parsed.body.length === 1 && parsed.body[0] === 0x03) {
+                            try {
+                                process.kill(-child.pid, 'SIGINT');
+                            } catch(e) {
+                                try { child.kill('SIGINT'); } catch(ex) {}
+                            }
+                        } else {
+                            child.stdin.write(parsed.body);
+                        }
+                    }
+                }
             },
             (err) => {
                 console.error(`[WorkerNode] Frame error (${remote}):`, err.message);
