@@ -4,6 +4,7 @@
 // =====================================================================
 const fs = require("node:fs/promises");
 const path = require("node:path");
+const crypto = require("node:crypto");
 const DiffMatchPatch = require("diff-match-patch");
 const { BrowserWindow, ipcMain } = require("electron");
 
@@ -97,6 +98,32 @@ class SyncManager {
     };
   }
 
+  // ── Helper: Recursively get all files ignoring node_modules and .git ──
+  async getAllFilesRecursive(dirPath) {
+    const files = [];
+    try {
+      const entries = await fs.readdir(dirPath, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.name === "node_modules" || entry.name === ".git") continue;
+        const fullPath = path.join(dirPath, entry.name);
+        if (entry.isDirectory()) {
+          files.push(...(await this.getAllFilesRecursive(fullPath)));
+        } else {
+          // Check file size, ignore > 50MB
+          try {
+            const stats = await fs.stat(fullPath);
+            if (stats.size <= 50 * 1024 * 1024) {
+              files.push(fullPath);
+            } else {
+              console.warn(`[SyncService] Skipping large file (>50MB): ${fullPath}`);
+            }
+          } catch(e) {}
+        }
+      }
+    } catch (err) {}
+    return files;
+  }
+
   // ── Fetch ALL file versions from server and pre-populate local map ──
   // Called once when folder is opened — prevents false 409 conflicts on restart
   async syncVersionsFromServer(token, projectId, workspaceRoot) {
@@ -114,6 +141,7 @@ class SyncManager {
 
       const data = await response.json();
       const files = data.files || [];
+      const serverFilesMap = new Map();
 
       for (const file of files) {
         // Convert server relative path → local absolute path
@@ -121,9 +149,35 @@ class SyncManager {
           ? path.join(workspaceRoot, ...file.path.split("/"))
           : file.path;
         this.setVersion(localPath, file.version);
+        serverFilesMap.set(localPath, file);
       }
 
       console.log(`[SyncService] Pre-loaded ${files.length} file version(s) from server.`);
+
+      // ── AUTO RESCAN LOGIC ──
+      if (workspaceRoot) {
+        console.log("[SyncService] Auto-scanning local files for offline changes...");
+        const localPaths = await this.getAllFilesRecursive(workspaceRoot);
+        let changesDetected = 0;
+
+        for (const localPath of localPaths) {
+          try {
+            const content = await fs.readFile(localPath, "utf-8");
+            const localHash = crypto.createHash("md5").update(content, "utf8").digest("hex");
+            
+            const serverFile = serverFilesMap.get(localPath);
+            if (!serverFile || serverFile.hash !== localHash) {
+              console.log(`[SyncService] Detected local drift on ${localPath}, pushing...`);
+              changesDetected++;
+              // Call autoSync without awaiting so we don't block the startup too long
+              this.autoSync(localPath, token, projectId, workspaceRoot).catch(console.error);
+            }
+          } catch(e) {}
+        }
+        if (changesDetected === 0) {
+           console.log("[SyncService] Local workspace is perfectly in sync with server.");
+        }
+      }
     } catch (err) {
       console.error("[SyncService] syncVersionsFromServer error:", err.message || err);
     }

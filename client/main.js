@@ -4,6 +4,8 @@
 // =====================================================================
 const { app, BrowserWindow, Menu, ipcMain, safeStorage } = require("electron");
 const path = require("node:path");
+const fs = require("node:fs");
+const os = require("node:os");
 
 process.env.TCP_AUTO_CONNECT = "0";
 const tcpClient = require("./src/socket/tcpClient.js");
@@ -11,6 +13,7 @@ const tcpClient = require("./src/socket/tcpClient.js");
 const { registerFileIPC } = require("./src/main/ipc-file");
 const { registerMenuIPC } = require("./src/main/ipc-menu");
 const { registerWindowIPC } = require("./src/main/ipc-window");
+const { registerTerminalIPC } = require("./src/main/ipc-terminal");
 const { syncManager, setupSyncIPC } = require("./src/main/sync-service.js");
 
 let mainWindow;
@@ -47,10 +50,19 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
 
+  mainWindow.webContents.on('console-message', (event, levelOrDetails, message, line, sourceId) => {
+    if (typeof levelOrDetails === 'object') {
+      console.log(`[Renderer] ${levelOrDetails.message} (${levelOrDetails.sourceId}:${levelOrDetails.line})`);
+    } else {
+      console.log(`[Renderer] ${message} (${sourceId}:${line})`);
+    }
+  });
+
   // Đăng ký IPC một lần sau khi window được tạo
   registerFileIPC(mainWindow);
   registerMenuIPC(mainWindow);
   registerWindowIPC(mainWindow);
+  registerTerminalIPC(mainWindow, getWorkspaceRoot);
   setupSyncIPC(getToken, getProjectId, getWorkspaceRoot);
 
   // ---- SafeStorage: mã hóa/giải mã token bằng OS keychain ----
@@ -103,7 +115,7 @@ app.whenReady().then(() => {
       currentWorkspaceRoot = workspaceRoot || null;
 
       if (!currentToken || !name) {
-        console.warn("[Main] project:set — no token or name, skipping API call.");
+        console.warn(`[Main] project:set — no token or name, skipping API call. token=${!!currentToken}, name="${name}"`);
         currentProjectId = null;
         return { success: false, error: "Not logged in or no project name" };
       }
@@ -139,6 +151,101 @@ app.whenReady().then(() => {
       currentProjectId = null;
       return { success: false, error: err.message };
     }
+  });
+
+  // ---- GUEST ROOM MANAGEMENT ----
+  ipcMain.handle("project:set_guest", async (_event, data) => {
+    try {
+      if (!currentToken || !data.projectId) {
+        return { success: false, error: "Not logged in or missing project ID" };
+      }
+      currentProjectId = data.projectId;
+      
+      // Create a local temporary workspace for the guest
+      const guestFolder = path.join(os.tmpdir(), "cbcode_guest_" + Date.now());
+      fs.mkdirSync(guestFolder, { recursive: true });
+      currentWorkspaceRoot = guestFolder;
+      
+      console.log(`[Main] Guest Project set: id=${currentProjectId}, name="${data.name}", root="${currentWorkspaceRoot}"`);
+      
+      // We don't preload syncVersionsFromServer yet, wait for cloneGuestProject to finish
+      return { success: true, workspaceRoot: currentWorkspaceRoot };
+    } catch (err) {
+      console.error("[Main] project:set_guest error:", err);
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.on("project:clone_guest", async (_event, data) => {
+    try {
+      console.log("[Main] Fetching full guest project clone...");
+      const response = await fetch(`http://100.124.23.95:3000/api/project/clone?project_id=${data.projectId}`, {
+        headers: { Authorization: `Bearer ${data.token}` }
+      });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || "Clone failed");
+
+      // Write files
+      for (const file of payload.files) {
+        if (!file.content && file.error) continue; // skip errored
+        const absPath = path.join(currentWorkspaceRoot, file.path);
+        fs.mkdirSync(path.dirname(absPath), { recursive: true });
+        fs.writeFileSync(absPath, file.content || "");
+      }
+
+      console.log(`[Main] Guest Project Cloned! ${payload.files.length} files written to ${currentWorkspaceRoot}`);
+      
+      // Sync local maps with server versions
+      await syncManager.syncVersionsFromServer(currentToken, currentProjectId, currentWorkspaceRoot);
+      
+      // Tell renderer to open this folder
+      mainWindow.webContents.send("folder-opened", {
+        path: currentWorkspaceRoot,
+        name: path.basename(currentWorkspaceRoot)
+      });
+    } catch(err) {
+      console.error("[Main] clone_guest error:", err);
+    }
+  });
+
+  ipcMain.on("room:leave", () => {
+    try {
+      if (currentWorkspaceRoot && currentWorkspaceRoot.includes("cbcode_guest_")) {
+        console.log(`[Main] Leaving room, clearing guest folder: ${currentWorkspaceRoot}`);
+        fs.rmSync(currentWorkspaceRoot, { recursive: true, force: true });
+      }
+      currentProjectId = null;
+      currentWorkspaceRoot = null;
+      // Tell UI to clear sidebar
+      mainWindow.webContents.send("folder-opened", { path: null, name: "" });
+    } catch (err) {
+      console.error("[Main] room:leave error:", err);
+    }
+  });
+
+  // ---- TERMINAL & EXECUTION ----
+  tcpClient.setTerminalCallback((data) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      let outputText = "";
+      if (typeof data === "string") outputText = data;
+      else if (data && data.text) outputText = data.text;
+      else if (data && data.stdout) outputText = data.stdout;
+      else if (data && data.stderr) outputText = data.stderr;
+      else outputText = JSON.stringify(data);
+      
+      mainWindow.webContents.send("terminal-output", outputText);
+    }
+  });
+
+  ipcMain.on("run-code", (_event, data) => {
+    console.log(`[Main] Requesting remote code execution (lang: ${data.lang})...`);
+    tcpClient.send(tcpClient.TYPE.RUN, "run_" + Date.now(), {
+       action: "execute",
+       language: data.lang,
+       code: data.code,
+       projectId: currentProjectId,
+       entryPoint: data.entryPoint || "main.cpp"
+    }, { encrypt: true });
   });
 
   app.on("activate", () => {

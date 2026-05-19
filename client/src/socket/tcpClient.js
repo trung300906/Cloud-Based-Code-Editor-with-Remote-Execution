@@ -146,7 +146,13 @@ function handleAuthAck(requestId, data) {
   console.log(`[TCP Client] ✅ AUTH OK (${requestId})`, data);
 }
 
+let terminalCallback = null;
+function setTerminalCallback(cb) {
+  terminalCallback = cb;
+}
+
 function handleResult(requestId, data) {
+  if (terminalCallback) terminalCallback(data);
   console.log(`[💻 Code Result - ${requestId}]:`, data);
 }
 
@@ -181,4 +187,4 @@ if (process.env.TCP_AUTO_CONNECT !== "0") {
   connect();
 }
 
-module.exports = { send, sendAuth, setSession, connect, TYPE };
+module.exports = { send, sendAuth, setSession, connect, TYPE, setTerminalCallback };

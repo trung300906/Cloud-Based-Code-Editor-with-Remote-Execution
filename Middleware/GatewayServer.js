@@ -539,7 +539,8 @@ class GatewayServer {
               plainFrame,
               plainPayload,
               (sock) => (workerSocket = sock),
-            );
+              type
+            ).catch(console.error);
             break;
           case TYPE.EDIT:
           case TYPE.CURSOR:
@@ -574,7 +575,7 @@ class GatewayServer {
   }
 
   // ─── ĐIỀU PHỐI XUỐNG WORKER CLUSTER ─────────────────────────
-  _routeToWorkerCluster(clientSocket, rawFrame, payload, saveWorkerSocket) {
+  async _routeToWorkerCluster(clientSocket, rawFrame, payload, saveWorkerSocket, type) {
     // Lấy requestId để route + log
     if (!Buffer.isBuffer(payload) || payload.length < 4) {
       _log("warn", "[Router] Payload RUN không hợp lệ (quá ngắn)");
@@ -586,6 +587,30 @@ class GatewayServer {
       return;
     }
     const requestId = payload.subarray(4, 4 + idLen).toString("utf8");
+
+    // Lấy thông tin owner_id (Mapping) từ Redis
+    let ownerId = clientSocket.userId;
+    try {
+      const redisClient = require('redis').createClient({ url: process.env.REDIS_URL || "redis://127.0.0.1:6379" });
+      await redisClient.connect();
+      const mapped = await redisClient.get(`user:room_mapping:${clientSocket.userId}`);
+      if (mapped) ownerId = Number(mapped);
+      await redisClient.disconnect();
+    } catch (e) {}
+
+    // Bóc tách JSON cũ, nhét thêm owner_id vào
+    let finalFrame = rawFrame;
+    try {
+       const dataBuf = payload.subarray(4 + idLen);
+       const dataJson = JSON.parse(dataBuf.toString('utf8'));
+       dataJson.ownerId = ownerId;
+       dataJson.clientId = clientSocket.userId;
+       
+       // Đóng gói lại (Re-pack) - không mã hóa vì Worker đọc plain text
+       finalFrame = buildFrame(type, requestId, JSON.stringify(dataJson));
+    } catch(err) {
+       _log("error", `[Router] Failed to inject owner_id into payload: ${err.message}`);
+    }
 
     // Hỏi Sổ Nam Tào xem ai đang rảnh nhất
     const bestWorker = this.heartbeat.getBestWorker();
@@ -608,8 +633,8 @@ class GatewayServer {
     saveWorkerSocket(workerSocket); // Lưu lại để dọn dẹp khi Client ngắt ngang
 
     workerSocket.connect(bestWorker.port, bestWorker.host, () => {
-      // Forward nguyên xi cục Frame nhị phân xuống cho Worker xử lý
-      workerSocket.write(rawFrame);
+      // Forward frame (đã nhét owner_id) xuống cho Worker xử lý
+      workerSocket.write(finalFrame);
     });
 
     // Hứng Stream kết quả (Stdout/Stderr/Exit) từ Worker và đập thẳng về mặt Client

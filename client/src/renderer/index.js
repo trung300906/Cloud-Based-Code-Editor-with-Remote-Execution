@@ -20,6 +20,7 @@ import {
   initResizeHandle,
   onFolderOpened,
 } from "./sidebar.js";
+import { initTerminal, showTerminal, clearTerminal, writeTerminal, toggleTerminal, lockTerminalForExecution } from "./terminal.js";
 
 // =====================================================================
 // DOM READY — khởi tạo toàn bộ UI components
@@ -35,6 +36,45 @@ window.addEventListener("DOMContentLoaded", async () => {
   // Khôi phục folder mở lần trước
   const lastFolder = localStorage.getItem(LS.FOLDER);
   if (lastFolder) window.electronAPI.requestOpenFolder(lastFolder);
+
+  // Khởi tạo Terminal
+  initTerminal();
+
+  // Nút Toggle Terminal
+  const toggleTerminalBtn = document.getElementById("toggle-terminal-btn");
+  if (toggleTerminalBtn) {
+    toggleTerminalBtn.addEventListener("click", () => {
+      toggleTerminal();
+    });
+  }
+
+  // Nút Run Code
+  const runCodeBtn = document.getElementById("submit-btn");
+  if (runCodeBtn) {
+    runCodeBtn.addEventListener("click", () => {
+      const pane = getFocusedPane();
+      if (!pane || !pane.editor) {
+        alert("Please open a file to run");
+        return;
+      }
+      const code = pane.editor.getValue();
+      // Check language
+      const lang = document.getElementById("lang-select")?.value || "cpp";
+      
+      let entryPoint = "";
+      if (state.currentFilePath && state.rootFolderPath) {
+        entryPoint = state.currentFilePath.replace(state.rootFolderPath + "/", "");
+        entryPoint = entryPoint.replace(/\\/g, "/");
+      }
+
+      lockTerminalForExecution(lang);
+      
+      // Send code to Gateway via IPC -> tcpClient
+      if (window.electronAPI && window.electronAPI.sendRunCode) {
+         window.electronAPI.sendRunCode({ lang, code, entryPoint });
+      }
+    });
+  }
 });
 
 // =====================================================================

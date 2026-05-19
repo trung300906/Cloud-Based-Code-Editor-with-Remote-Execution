@@ -18,7 +18,7 @@ const {
 
 const PORT = Number(process.env.AUTH_PORT || 3000);
 const JWT_SECRET = process.env.JWT_HMAC_SECRET || "dev-hmac-secret";
-const JWT_TTL_SECONDS = Number(process.env.JWT_TTL_SECONDS || 3600);
+const JWT_TTL_SECONDS = Number(process.env.JWT_TTL_SECONDS || 604800); // 7 days
 
 const pool = new Pool({
   host: process.env.PGHOST || "127.0.0.1",
@@ -52,7 +52,7 @@ const MINIO_BUCKET = process.env.MINIO_BUCKET || "cloud-ide";
 
 const app = express();
 app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
 
 function extractToken(req) {
   const auth = req.headers.authorization || "";
@@ -69,7 +69,7 @@ app.post("/login", async (req, res) => {
     }
 
     const result = await pool.query(
-      "SELECT id, username, password_hash FROM users WHERE username = $1 LIMIT 1",
+      "SELECT id, username, password_hash, room_id FROM users WHERE username = $1 LIMIT 1",
       [username],
     );
 
@@ -99,7 +99,7 @@ app.post("/login", async (req, res) => {
       return res.status(409).json({ error: "user already online" });
     }
 
-    return res.status(200).json({ token });
+    return res.status(200).json({ token, room_id: user.room_id });
   } catch (err) {
     console.error("[AuthService] /login error:", err.message || err);
     return res.status(500).json({ error: "internal error" });
@@ -124,13 +124,14 @@ app.post("/register", async (req, res) => {
 
     // Hash and insert
     const password_hash = await bcrypt.hash(password, 10);
+    const initialRoomId = String(Math.floor(Math.random() * 9000000000000000) + 1000000000000000);
     const result = await pool.query(
-      "INSERT INTO users (username, password_hash) VALUES ($1, $2) RETURNING id, username",
-      [username, password_hash],
+      "INSERT INTO users (username, password_hash, room_id) VALUES ($1, $2, $3) RETURNING id, username, room_id",
+      [username, password_hash, initialRoomId],
     );
 
     const user = result.rows[0];
-    return res.status(201).json({ id: user.id, username: user.username });
+    return res.status(201).json({ id: user.id, username: user.username, room_id: user.room_id });
   } catch (err) {
     console.error("[AuthService] /register error:", err.message || err);
     return res.status(500).json({ error: "internal error" });
@@ -181,6 +182,18 @@ const authenticateToken = (req, res, next) => {
   }
 };
 
+// ---- Helper: Virtual Session Mapping ----
+// Lấy Owner thực sự (Nghĩa là nếu user này đang làm Guest trong Room của ai đó, thì trả về ID của người chủ phòng)
+async function getEffectiveOwnerId(userId) {
+  try {
+    const mapped = await redisClient.get(`user:room_mapping:${userId}`);
+    return mapped ? Number(mapped) : Number(userId);
+  } catch (err) {
+    console.warn(`[Redis] Error getting room mapping for ${userId}:`, err.message);
+    return Number(userId);
+  }
+}
+
 // ---- Helper: convert S3 stream to string ----
 async function streamToString(stream) {
   const chunks = [];
@@ -189,6 +202,7 @@ async function streamToString(stream) {
   }
   return Buffer.concat(chunks).toString("utf-8");
 }
+
 
 // ---- GET /api/sync/file — Fetch file from MinIO ----
 app.get("/api/sync/file", authenticateToken, async (req, res) => {
@@ -225,10 +239,39 @@ app.get("/api/sync/file", authenticateToken, async (req, res) => {
 app.post("/api/project/create", authenticateToken, async (req, res) => {
   try {
     const { name } = req.body || {};
-    const ownerId = Number(req.user.sub);
+    const ownerId = await getEffectiveOwnerId(req.user.sub);
 
     if (!name || typeof name !== "string" || name.trim() === "") {
       return res.status(400).json({ error: "project name required" });
+    }
+
+    // Tái sử dụng project cũ nếu đã tồn tại thay vì tạo mới
+    const existing = await pool.query(
+      `SELECT id, name, created_at FROM projects
+       WHERE owner_id = $1 AND name = $2 LIMIT 1`,
+      [ownerId, name.trim()],
+    );
+    if (existing.rowCount > 0) {
+      return res.status(200).json({
+        project: existing.rows[0],
+        created: false,
+      });
+    }
+
+    // CHECK LIMIT: Max 3 projects per owner
+    const countResult = await pool.query(`SELECT COUNT(*) as cnt FROM projects WHERE owner_id = $1`, [ownerId]);
+    if (parseInt(countResult.rows[0].cnt) >= 3) {
+      // Find the oldest project and delete its files + project row
+      const oldest = await pool.query(
+        `SELECT id FROM projects WHERE owner_id = $1 ORDER BY created_at ASC LIMIT 1`,
+        [ownerId]
+      );
+      if (oldest.rowCount > 0) {
+        const oldestId = oldest.rows[0].id;
+        await pool.query(`DELETE FROM files WHERE project_id = $1`, [oldestId]);
+        await pool.query(`DELETE FROM projects WHERE id = $1`, [oldestId]);
+        console.log(`[AuthService] Limit reached (>=3). Deleted oldest workspace id=${oldestId}`);
+      }
     }
 
     const result = await pool.query(
@@ -293,7 +336,8 @@ app.post("/api/project/sync/file", authenticateToken, async (req, res) => {
   const client = await pool.connect();
   try {
     const { project_id, path: filePath, content, version } = req.body || {};
-    const userId = Number(req.user.sub);
+    const userId = Number(req.user.sub); // User performing the action
+    const ownerId = await getEffectiveOwnerId(userId); // The actual owner (might be host)
 
     // ── Validate input ──
     if (!project_id || !filePath || content === undefined || version === undefined) {
@@ -312,10 +356,10 @@ app.post("/api/project/sync/file", authenticateToken, async (req, res) => {
     // ── Verify project ownership ──
     const projectCheck = await client.query(
       `SELECT id FROM projects WHERE id = $1 AND owner_id = $2 LIMIT 1`,
-      [projectId, userId],
+      [projectId, ownerId],
     );
     if (projectCheck.rowCount === 0) {
-      return res.status(403).json({ error: "project not found or not owned by you" });
+      return res.status(403).json({ error: "project not found or not owned by you (or host)" });
     }
 
     // ── Compute content hash ──
@@ -336,7 +380,7 @@ app.post("/api/project/sync/file", authenticateToken, async (req, res) => {
     );
 
     let newVersion;
-    const minioKey = `${userId}/${projectId}/${filePath}`;
+    const minioKey = `${ownerId}/${projectId}/${filePath}`;
 
     if (existing.rowCount === 0) {
       // ── NEW FILE: Insert metadata first, then upload ──
@@ -439,6 +483,7 @@ app.get("/api/project/file", authenticateToken, async (req, res) => {
     const projectId = Number(req.query.project_id);
     const filePath = req.query.path;
     const userId = Number(req.user.sub);
+    const ownerId = await getEffectiveOwnerId(userId);
 
     if (!projectId || !filePath) {
       return res.status(400).json({ error: "project_id and path query params required" });
@@ -451,7 +496,7 @@ app.get("/api/project/file", authenticateToken, async (req, res) => {
        JOIN projects p ON p.id = f.project_id
        WHERE f.project_id = $1 AND f.path = $2 AND p.owner_id = $3
        LIMIT 1`,
-      [projectId, filePath, userId],
+      [projectId, filePath, ownerId],
     );
 
     if (meta.rowCount === 0) {
@@ -459,7 +504,7 @@ app.get("/api/project/file", authenticateToken, async (req, res) => {
     }
 
     // Fetch content from MinIO
-    const minioKey = `${userId}/${projectId}/${filePath}`;
+    const minioKey = `${ownerId}/${projectId}/${filePath}`;
     const s3Response = await s3.send(
       new GetObjectCommand({ Bucket: MINIO_BUCKET, Key: minioKey }),
     );
@@ -486,6 +531,7 @@ app.get("/api/project/clone", authenticateToken, async (req, res) => {
   try {
     const projectId = Number(req.query.project_id);
     const userId = Number(req.user.sub);
+    const ownerId = await getEffectiveOwnerId(userId);
 
     if (!projectId || !Number.isFinite(projectId)) {
       return res.status(400).json({ error: "project_id query parameter required" });
@@ -498,7 +544,7 @@ app.get("/api/project/clone", authenticateToken, async (req, res) => {
        JOIN projects p ON p.id = f.project_id
        WHERE f.project_id = $1 AND p.owner_id = $2
        ORDER BY f.path`,
-      [projectId, userId],
+      [projectId, ownerId],
     );
 
     if (meta.rowCount === 0) {
@@ -507,7 +553,7 @@ app.get("/api/project/clone", authenticateToken, async (req, res) => {
 
     // 2. Pull all file contents from MinIO in parallel
     const filePromises = meta.rows.map(async (row) => {
-      const minioKey = `${userId}/${projectId}/${row.path}`;
+      const minioKey = `${ownerId}/${projectId}/${row.path}`;
       try {
         const s3Response = await s3.send(
           new GetObjectCommand({ Bucket: MINIO_BUCKET, Key: minioKey }),
@@ -532,10 +578,101 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
+// =====================================================================
+// Virtual Session Mapping (Room APIs)
+// =====================================================================
+
+app.post("/api/room/join", authenticateToken, async (req, res) => {
+  try {
+    const { room_id } = req.body || {};
+    const guestId = Number(req.user.sub);
+
+    if (!room_id || typeof room_id !== "string") {
+      return res.status(400).json({ error: "room_id string required" });
+    }
+
+    // Find the owner of this room
+    const result = await pool.query(`SELECT id, username FROM users WHERE room_id = $1 LIMIT 1`, [room_id]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "room not found" });
+    }
+
+    const ownerId = result.rows[0].id;
+    if (ownerId === guestId) {
+      return res.status(400).json({ error: "cannot join your own room as guest" });
+    }
+
+    // 1. Map session in Redis
+    await redisClient.set(`user:room_mapping:${guestId}`, String(ownerId));
+    // 2. Add guest to room's active list
+    await redisClient.sAdd(`room:${room_id}:guests`, String(guestId));
+
+    // 3. Get list of projects for this owner
+    const projects = await pool.query(`SELECT id, name, created_at, updated_at FROM projects WHERE owner_id = $1`, [ownerId]);
+
+    return res.status(200).json({
+      message: `Joined room hosted by ${result.rows[0].username}`,
+      owner_id: ownerId,
+      owner_username: result.rows[0].username,
+      projects: projects.rows
+    });
+  } catch (err) {
+    console.error("[API] POST /api/room/join error:", err.message || err);
+    return res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.post("/api/room/leave", authenticateToken, async (req, res) => {
+  try {
+    const guestId = Number(req.user.sub);
+    const { room_id } = req.body || {};
+
+    await redisClient.del(`user:room_mapping:${guestId}`);
+    if (room_id) {
+      await redisClient.sRem(`room:${room_id}:guests`, String(guestId));
+    }
+    
+    return res.status(200).json({ message: "Left room successfully" });
+  } catch (err) {
+    console.error("[API] POST /api/room/leave error:", err.message || err);
+    return res.status(500).json({ error: "internal error" });
+  }
+});
+
+// Rotate Room IDs every 15 minutes, skipping rooms with active guests
+async function rotateRoomIds() {
+  try {
+    const allUsers = await pool.query(`SELECT id, room_id FROM users WHERE room_id IS NOT NULL`);
+    let rotated = 0;
+    
+    for (const user of allUsers.rows) {
+      const roomId = user.room_id;
+      // Check if there are active guests in this room
+      const guests = await redisClient.sMembers(`room:${roomId}:guests`);
+      if (!guests || guests.length === 0) {
+        // Safe to rotate
+        const newRoomId = Math.floor(Math.random() * 1e16).toString().padStart(16, '0');
+        await pool.query(`UPDATE users SET room_id = $1 WHERE id = $2`, [newRoomId, user.id]);
+        rotated++;
+      }
+    }
+    console.log(`[AuthService] Rotated room_id for ${rotated} users.`);
+  } catch (err) {
+    console.error("[AuthService] rotateRoomIds error:", err.message || err);
+  }
+}
+
 async function startAuthService() {
   try {
     await redisClient.connect();
     await pool.query("SELECT 1");
+    
+    // Initial generation for users with NULL room_id
+    await pool.query(`UPDATE users SET room_id = lpad(floor(random() * 1e16)::bigint::text, 16, '0') WHERE room_id IS NULL`);
+
+    // Start 15-minute cron job
+    setInterval(rotateRoomIds, 15 * 60 * 1000);
+
     app.listen(PORT, () => {
       console.log(`[AuthService] Listening on :${PORT}`);
     });
