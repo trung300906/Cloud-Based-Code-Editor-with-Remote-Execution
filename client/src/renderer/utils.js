@@ -1,6 +1,6 @@
-// =====================================================================
+ 
 // UTILS — Pure utilities dùng chung bởi nhiều module
-// =====================================================================
+ 
 
 export const IMAGE_EXTS = new Set([
   "jpg", "jpeg", "png", "gif", "bmp", "ico", "webp", "tiff", "svg",

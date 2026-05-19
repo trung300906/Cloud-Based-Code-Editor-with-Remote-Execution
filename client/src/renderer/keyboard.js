@@ -1,6 +1,6 @@
-// =====================================================================
+ 
 // KEYBOARD — Global keyboard shortcuts (thay thế Electron accelerator)
-// =====================================================================
+ 
 import { handleMenuAction } from "./menubar.js";
 
 /**

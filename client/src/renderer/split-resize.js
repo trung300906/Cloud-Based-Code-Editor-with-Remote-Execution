@@ -1,6 +1,6 @@
-// =====================================================================
+ 
 // SPLIT RESIZE — kéo divider để resize hai pane cạnh nhau
-// =====================================================================
+ 
 
 /**
  * Gắn event listeners để handle resize kéo thả lên split divider.

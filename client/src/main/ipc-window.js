@@ -1,6 +1,6 @@
-// =====================================================================
+ 
 // IPC WINDOW — win-minimize, win-close, win-reload, zoom, devtools, app-quit
-// =====================================================================
+ 
 const { ipcMain, app } = require("electron");
 
 /**

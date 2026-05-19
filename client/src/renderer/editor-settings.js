@@ -1,6 +1,6 @@
-// =====================================================================
+ 
 // EDITOR SETTINGS — load/save/apply Monaco editor options
-// =====================================================================
+ 
 import { LS, state } from "./state.js";
 
 export const DEFAULT_EDITOR_SETTINGS = {

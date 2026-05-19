@@ -274,9 +274,9 @@ app.get("/api/sync/file", authenticateToken, async (req, res) => {
   }
 });
 
-// =====================================================================
+ 
 // Phase 1 — OCC Project Sync API
-// =====================================================================
+ 
 
 // ---- POST /api/project/create — Create a new project ----
 app.post("/api/project/create", authenticateToken, async (req, res) => {
@@ -621,9 +621,9 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
-// =====================================================================
+ 
 // Virtual Session Mapping (Room APIs)
-// =====================================================================
+ 
 
 app.post("/api/room/join", authenticateToken, async (req, res) => {
   try {

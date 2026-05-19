@@ -1,7 +1,7 @@
-// =====================================================================
+ 
 // DRAG & DROP — 5-region per-pane drop zones (top/bottom/left/right/center)
 // Circular import với tab.js là an toàn (chỉ dùng trong event handlers)
-// =====================================================================
+ 
 import { state } from "./state.js";
 import { splitPane } from "./pane.js";
 import { moveTabToPane, activateTabInPane, appendTabElToPane } from "./tab.js";

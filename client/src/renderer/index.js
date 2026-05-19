@@ -1,9 +1,9 @@
-// =====================================================================
+ 
 // RENDERER ENTRY POINT — Khởi tạo UI và kết nối Electron IPC events
 //
 // Import monaco-init.js trước để require.config() chạy sớm nhất có thể,
 // song song với DOMContentLoaded (Monaco tải async từ CDN).
-// =====================================================================
+ 
 import "./monaco-init.js";
 
 import { state, LS } from "./state.js";
@@ -22,9 +22,9 @@ import {
 } from "./sidebar.js";
 import { initTerminal, showTerminal, clearTerminal, writeTerminal, toggleTerminal, lockTerminalForExecution } from "./terminal.js";
 
-// =====================================================================
+ 
 // DOM READY — khởi tạo toàn bộ UI components
-// =====================================================================
+ 
 window.addEventListener("DOMContentLoaded", async () => {
   initRootPane(); // Tạo pane đầu tiên (Monaco chưa load, editor sẽ được tạo sau)
   buildSidebarToolbar(); // Inject toolbar vào sidebar
@@ -77,9 +77,9 @@ window.addEventListener("DOMContentLoaded", async () => {
   }
 });
 
-// =====================================================================
+ 
 // ELECTRON IPC — nhận events từ main process
-// =====================================================================
+ 
 
 /** Ctrl+N hoặc File > New */
 window.electronAPI.onNewFile(() => {

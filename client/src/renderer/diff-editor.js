@@ -1,7 +1,7 @@
-// =====================================================================
+ 
 // DIFF EDITOR UI — Trình giải quyết xung đột bằng Monaco Diff Editor
 // Supports OCC: passes cloudVersion through resolution for version-aware push
-// =====================================================================
+ 
 
 import { getFocusedPane } from "./pane.js";
 

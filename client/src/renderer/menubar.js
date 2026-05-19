@@ -1,7 +1,7 @@
-// =====================================================================
+ 
 // MENUBAR — Custom dropdown menu, doSave, handleMenuAction
 // setEditorLanguage được import từ monaco-init.js (tránh circular)
-// =====================================================================
+ 
 import { state, LS } from "./state.js";
 import { getFocusedPane, splitEditor, removePane } from "./pane.js";
 import { openOrActivateTab } from "./tab.js";

@@ -1,17 +1,17 @@
-// =====================================================================
+ 
 // MONACO INIT — Cấu hình Monaco, đăng ký Mermaid, khởi tạo editor
 //
 // Module này có side effect: gọi require.config() và require() ngay khi load.
 // Monaco AMD loader (từ CDN) phải được load TRƯỚC module này.
-// =====================================================================
+ 
 import { state, LS } from "./state.js";
 import { ALL_LANGUAGES } from "./lang-detect.js";
 import { openOrActivateTab } from "./tab.js";
 import { getEditorCreateOptions } from "./editor-settings.js";
 
-// =====================================================================
+ 
 // LANGUAGE DROPDOWN
-// =====================================================================
+ 
 
 /** Populate dropdown #lang-select với tất cả supported languages. */
 export function buildLangDropdown() {
@@ -47,9 +47,9 @@ export function setEditorLanguage(langId) {
   if (sel) sel.value = langId;
 }
 
-// =====================================================================
+ 
 // MERMAID CUSTOM LANGUAGE
-// =====================================================================
+ 
 
 /** Đăng ký syntax highlighting cho Mermaid diagram language. */
 export function registerMermaidLanguage() {
@@ -103,9 +103,9 @@ export function registerMermaidLanguage() {
   });
 }
 
-// =====================================================================
+ 
 // MONACO INIT — side effect xảy ra khi module được import lần đầu
-// =====================================================================
+ 
 
 require.config({
   paths: {

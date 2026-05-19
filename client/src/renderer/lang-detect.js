@@ -1,6 +1,6 @@
-// =====================================================================
+ 
 // LANGUAGE DETECTION — mapping file extension → Monaco language id
-// =====================================================================
+ 
 
 export const EXT_LANG_MAP = {
   c: "c",

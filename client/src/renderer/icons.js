@@ -1,6 +1,6 @@
-// =====================================================================
+ 
 // ICONS — SVG toolbar icons, file emoji icons, breadcrumb SVG icons
-// =====================================================================
+ 
 
 // ---- Sidebar toolbar buttons ----
 export const SVG = {
