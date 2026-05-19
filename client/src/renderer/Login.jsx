@@ -1,7 +1,7 @@
 import { useState } from "react";
 
 const DEFAULT_AUTH_URL =
-  import.meta.env?.VITE_AUTH_URL || "http://127.0.0.1:3000/login";
+  import.meta.env?.VITE_AUTH_URL || "http://100.124.23.95:3000/login";
 
 export default function Login() {
   const [username, setUsername] = useState("");
