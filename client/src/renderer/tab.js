@@ -96,7 +96,13 @@ export function openOrActivateTab(filePath, content, paneId) {
   const uri = filePath
     ? monaco.Uri.file(filePath)
     : monaco.Uri.parse(`inmemory://model/${id}`);
-  const model = monaco.editor.createModel(content || "", lang, uri);
+  let model = monaco.editor.getModel(uri);
+  if (model) {
+    model.setValue(content || "");
+    monaco.editor.setModelLanguage(model, lang);
+  } else {
+    model = monaco.editor.createModel(content || "", lang, uri);
+  }
   applyEditorSettingsToModel(model, loadEditorSettings());
 
   model.onDidChangeContent(() => {
@@ -136,12 +142,16 @@ export function activateTabInPane(tabId, pane) {
 
   if (tab.viewerType) {
     // Viewer tab (image/PDF): hide Monaco, show viewer
-    if (pane.editor) pane.editor.getDomNode().style.display = 'none';
+    if (pane.editor) {
+      const node = pane.editor.getDomNode();
+      if (node) node.style.display = 'none';
+    }
     pane.containerEl.appendChild(tab.viewerEl);
   } else {
     // Monaco tab: show editor, set model
     if (!pane.editor) return;
-    pane.editor.getDomNode().style.display = '';
+    const node = pane.editor.getDomNode();
+    if (node) node.style.display = '';
     pane.editor.setModel(tab.model);
   }
 
@@ -192,7 +202,10 @@ export function closeTab(tabId) {
   if (tab.viewerType) {
     const viewer = pane.el.querySelector('.file-viewer');
     if (viewer) viewer.remove();
-    if (pane.editor) pane.editor.getDomNode().style.display = '';
+    if (pane.editor) {
+      const node = pane.editor.getDomNode();
+      if (node) node.style.display = '';
+    }
   }
 
   // Dispose model nếu không còn tab nào khác dùng chung
@@ -217,7 +230,7 @@ export function closeTab(tabId) {
       pane.activeTabId = null;
       state.currentFilePath = null;
       if (pane.editor)
-        pane.editor.setModel(monaco.editor.createModel("", "plaintext"));
+        pane.editor.setModel(null);
       updateBreadcrumb(null, pane);
       document.title = "RCE App";
     }
@@ -309,7 +322,7 @@ export function moveTabToPane(tabId, targetPaneId) {
     } else {
       src.activeTabId = null;
       if (src.editor)
-        src.editor.setModel(monaco.editor.createModel("", "plaintext"));
+        src.editor.setModel(null);
       updateBreadcrumb(null, src);
     }
   }

@@ -235,6 +235,52 @@ async function runCppJob({ jobDir, entryPoint, timeoutMs, onStdout, onStderr }) 
     return { ...result, timedOut };
 }
 
+async function runPythonJob({ jobDir, entryPoint, timeoutMs, onStdout, onStderr }) {
+    const entry = String(entryPoint || '').trim();
+    if (!entry) throw new Error('missing entryPoint');
+    if (path.isAbsolute(entry)) throw new Error('entryPoint must be relative');
+    if (entry.includes('\u0000')) throw new Error('invalid entryPoint');
+
+    // Ensure entry exists inside the pulled workspace.
+    const entryAbs = _safeJoin(jobDir, entry);
+    if (!entryAbs) throw new Error('invalid entryPoint path');
+    const exists = await fse.pathExists(entryAbs);
+    if (!exists) throw new Error(`entryPoint not found: ${entry}`);
+
+    const cmd = `python3 ${_quoteSh(entry)}`;
+
+    const child = spawn('sh', ['-lc', cmd], {
+        cwd: jobDir,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: process.env,
+        detached: true,
+    });
+
+    child.stdout.on('data', onStdout);
+    child.stderr.on('data', onStderr);
+
+    let timedOut = false;
+    const kill = () => {
+        try {
+            process.kill(-child.pid, 'SIGKILL');
+        } catch (_) {
+            try { child.kill('SIGKILL'); } catch (_) {}
+        }
+    };
+
+    const timer = setTimeout(() => {
+        timedOut = true;
+        kill();
+    }, timeoutMs);
+
+    const result = await new Promise((resolve, reject) => {
+        child.on('error', reject);
+        child.on('close', (code, signal) => resolve({ code, signal }));
+    }).finally(() => clearTimeout(timer));
+
+    return { ...result, timedOut };
+}
+
 class JobScheduler {
     constructor(opts = {}) {
         this.maxConcurrent = Number(opts.maxConcurrent ?? 1);
@@ -349,7 +395,7 @@ async function main() {
 
                 if (ownerId === undefined || projectId === undefined || !language || !entryPoint) {
                     if (sock.writable) {
-                        sock.write(buildFrame(TYPE.ERROR, rid, 'Missing fields: ownerId/projectId/language/entryPoint'));
+                        sock.write(buildFrame(TYPE.ERROR, rid, 'Missing fields. Received: ' + JSON.stringify(spec)));
                     }
                     pendingRequests.delete(rid);
                     return;
@@ -374,8 +420,20 @@ async function main() {
                     await pullWorkspaceFromMinio(jobDir, ownerId, projectId);
 
                     let result;
-                    if (language === 'cpp') {
+                    if (language === 'cpp' || language === 'c++') {
                         result = await runCppJob({
+                            jobDir,
+                            entryPoint,
+                            timeoutMs: EXEC_TIMEOUT_MS,
+                            onStdout: (chunk) => {
+                                if (sock.writable) sock.write(buildFrame(TYPE.RESULT, rid, chunk));
+                            },
+                            onStderr: (chunk) => {
+                                if (sock.writable) sock.write(buildFrame(TYPE.RESULT, rid, chunk));
+                            },
+                        });
+                    } else if (language === 'python' || language === 'py') {
+                        result = await runPythonJob({
                             jobDir,
                             entryPoint,
                             timeoutMs: EXEC_TIMEOUT_MS,

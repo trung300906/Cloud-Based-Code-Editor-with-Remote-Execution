@@ -45,9 +45,22 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   // Project Management
   setProject: (name, workspaceRoot) => ipcRenderer.invoke("project:set", { name, workspaceRoot }),
+  projectSet: (data) => ipcRenderer.invoke("project:set_guest", data),
+  cloneGuestProject: (data) => ipcRenderer.send("project:clone_guest", data),
+  leaveRoom: () => ipcRenderer.send("room:leave"),
 
   // Sync Engine (OCC)
   onSyncConflict: (callback) => ipcRenderer.on('sync:conflict', (_event, data) => callback(data)),
   resolveConflict: (filepath, resolvedContent, cloudVersion) =>
     ipcRenderer.invoke('sync:resolve', filepath, resolvedContent, cloudVersion),
+
+  // Terminal & Run Code
+  sendRunCode: (data) => ipcRenderer.send('run-code', data),
+  onTerminalOutput: (cb) => ipcRenderer.on('terminal-output', (e, data) => cb(data)),
+  
+  // PTY events
+  startPty: () => ipcRenderer.send('terminal-pty-start'),
+  sendPtyInput: (data) => ipcRenderer.send('terminal-pty-input', data),
+  resizePty: (cols, rows) => ipcRenderer.send('terminal-pty-resize', { cols, rows }),
+  onPtyOutput: (cb) => ipcRenderer.on('terminal-pty-output', (e, data) => cb(data)),
 });

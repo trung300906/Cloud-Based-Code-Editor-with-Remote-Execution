@@ -54,7 +54,8 @@ export function onFolderOpened(data) {
   state.fileIndex = rebuildFileIndex(data.items, data.folderPath);
 
   // Đăng ký/lấy project trên server khi mở folder (dùng tên folder làm tên project)
-  const folderName = data.folderPath.split(/[\\/]/).pop();
+  const cleanPath = data.folderPath.replace(/[\\/]+$/, "");
+  const folderName = cleanPath.split(/[\\/]/).pop() || "Untitled Project";
   if (window.electronAPI?.setProject) {
     window.electronAPI.setProject(folderName, data.folderPath).then((result) => {
       if (result.success) {

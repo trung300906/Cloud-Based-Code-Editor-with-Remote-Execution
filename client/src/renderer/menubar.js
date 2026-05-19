@@ -315,7 +315,6 @@ export async function initCustomMenubar() {
     const userWrapper = userPopover.querySelector("[data-user-wrapper]");
     const usernameInput = userPopover.querySelector("#login-username");
     const passwordInput = userPopover.querySelector("#login-password");
-    const roomInput = userPopover.querySelector("#login-roomid");
     const loginStatus = userPopover.querySelector("#login-status");
     const loginBtn = userPopover.querySelector("#login-btn");
     const loginClearBtn = userPopover.querySelector("#login-clear-btn");
@@ -328,17 +327,22 @@ export async function initCustomMenubar() {
     const userRoom = userPopover.querySelector("#user-room");
     const userToken = userPopover.querySelector("#user-token");
 
+    const joinRoomInput = userPopover.querySelector("#join-room-input");
+    const joinRoomBtn = userPopover.querySelector("#join-room-btn");
+    const leaveRoomBtn = userPopover.querySelector("#leave-room-btn");
+    const activeRoomRow = userPopover.querySelector("#active-room-row");
+    const activeRoomHost = userPopover.querySelector("#active-room-host");
+
     function renderUserProfile(profile) {
       const safeProfile = profile || {};
       const isAuth = Boolean(safeProfile.loggedIn);
       const displayName = safeProfile.username || "guest";
-      const roomId = safeProfile.roomId || "default";
+      const roomId = safeProfile.myRoomId || "---";
       const token = safeProfile.token || "";
 
       if (userWrapper) userWrapper.classList.toggle("is-auth", isAuth);
       if (usernameInput) usernameInput.value = displayName;
       if (passwordInput) passwordInput.value = "";
-      if (roomInput) roomInput.value = roomId;
       if (userAvatar)
         userAvatar.textContent = displayName.slice(0, 2).toUpperCase();
       if (userName) userName.textContent = displayName;
@@ -406,7 +410,7 @@ export async function initCustomMenubar() {
         console.warn("[Menubar] Saved token expired, clearing session.");
         currentProfile = {
           username: currentProfile.username || "",
-          roomId: currentProfile.roomId || "default",
+          myRoomId: currentProfile.myRoomId || "---",
           token: "",
           loggedIn: false,
           lastLogin: currentProfile.lastLogin || null,
@@ -423,7 +427,6 @@ export async function initCustomMenubar() {
       loginBtn.addEventListener("click", async () => {
         const username = usernameInput?.value.trim();
         const password = passwordInput?.value || "";
-        const roomId = roomInput?.value.trim() || "default";
 
         if (!username || !password) {
           if (loginStatus) {
@@ -503,7 +506,7 @@ export async function initCustomMenubar() {
 
           currentProfile = {
             username,
-            roomId,
+            myRoomId: payload.room_id || "---",
             token: payload.token,
             loggedIn: true,
             lastLogin: Date.now(),
@@ -534,7 +537,6 @@ export async function initCustomMenubar() {
       loginClearBtn.addEventListener("click", () => {
         if (usernameInput) usernameInput.value = "";
         if (passwordInput) passwordInput.value = "";
-        if (roomInput) roomInput.value = "";
         if (loginStatus) {
           loginStatus.textContent = "";
           loginStatus.classList.remove("is-error", "is-ok");
@@ -584,7 +586,7 @@ export async function initCustomMenubar() {
 
       currentProfile = {
         username: currentProfile?.username || "",
-        roomId: currentProfile?.roomId || "default",
+        myRoomId: currentProfile?.myRoomId || "---",
         token: "",
         loggedIn: false,
         lastLogin: currentProfile?.lastLogin || null,
@@ -625,6 +627,120 @@ export async function initCustomMenubar() {
           tmp.remove();
         }
       });
+    }
+
+    // ─── JOIN / LEAVE ROOM LOGIC ───
+    if (joinRoomBtn) {
+      joinRoomBtn.addEventListener("click", async () => {
+        const token = currentProfile?.token;
+        const roomIdToJoin = joinRoomInput?.value.trim();
+        if (!token || !roomIdToJoin) return;
+
+        joinRoomBtn.textContent = "Joining...";
+        try {
+          const response = await fetch("http://100.124.23.95:3000/api/room/join", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+            body: JSON.stringify({ room_id: roomIdToJoin })
+          });
+          const payload = await response.json();
+          if (!response.ok) {
+            alert(payload.error || "Failed to join room");
+            joinRoomBtn.textContent = "Join Room";
+            return;
+          }
+
+          // Joined successfully!
+          joinRoomBtn.style.display = "none";
+          joinRoomInput.style.display = "none";
+          leaveRoomBtn.style.display = "block";
+          activeRoomRow.style.display = "flex";
+          activeRoomHost.textContent = payload.owner_username;
+
+          // Show workspace selection modal
+          showWorkspaceModal(payload.projects, payload.owner_username, roomIdToJoin);
+        } catch (err) {
+          alert("Error: " + err.message);
+          joinRoomBtn.textContent = "Join Room";
+        }
+      });
+    }
+
+    if (leaveRoomBtn) {
+      leaveRoomBtn.addEventListener("click", async () => {
+        const token = currentProfile?.token;
+        if (!token) return;
+        
+        try {
+          await fetch("http://100.124.23.95:3000/api/room/leave", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
+            body: JSON.stringify({})
+          });
+        } catch(e) {} // ignore local errors
+
+        // Reset UI
+        joinRoomBtn.style.display = "block";
+        joinRoomInput.style.display = "block";
+        joinRoomBtn.textContent = "Join Room";
+        joinRoomInput.value = "";
+        leaveRoomBtn.style.display = "none";
+        activeRoomRow.style.display = "none";
+        
+        // Notify electron to clear guest workspace
+        if (window.electronAPI?.leaveRoom) {
+          window.electronAPI.leaveRoom();
+        }
+      });
+    }
+
+    function showWorkspaceModal(projects, ownerUsername, roomId) {
+      const modal = document.getElementById("room-workspace-modal");
+      const listContainer = document.getElementById("room-workspace-list");
+      const cancelBtn = document.getElementById("cancel-join-btn");
+      if (!modal || !listContainer) return;
+
+      listContainer.innerHTML = "";
+      if (projects.length === 0) {
+        listContainer.innerHTML = "<div style='color:#ffaa00'>This user has no workspaces!</div>";
+      } else {
+        projects.forEach(proj => {
+          const btn = document.createElement("button");
+          btn.className = "primary-btn";
+          btn.style.width = "100%";
+          btn.style.marginBottom = "8px";
+          btn.textContent = proj.name;
+          btn.onclick = () => {
+            modal.style.display = "none";
+            // Tell electron we are a guest working on this project
+            if (window.electronAPI?.projectSet) {
+               window.electronAPI.projectSet({
+                 name: proj.name,
+                 workspaceRoot: null, // Let Main process handle it
+                 isGuest: true,
+                 ownerUsername: ownerUsername,
+                 roomId: roomId,
+                 projectId: proj.id
+               }).then(res => {
+                 if (res.success) {
+                   // Clone project content for guest
+                   window.electronAPI.cloneGuestProject({ projectId: proj.id, token: currentProfile.token });
+                 } else {
+                   alert("Error setting project context: " + res.error);
+                 }
+               });
+            }
+          };
+          listContainer.appendChild(btn);
+        });
+      }
+
+      modal.style.display = "flex";
+
+      cancelBtn.onclick = () => {
+        modal.style.display = "none";
+        leaveRoomBtn.click(); // revert join
+      };
     }
   }
 
