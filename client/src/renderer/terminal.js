@@ -56,9 +56,16 @@ export function initTerminal() {
     // Listen to outputs from Gateway code execution
     window.electronAPI.onTerminalOutput((data) => {
       if (!isLocked) return;
-      term.write(data);
-      term.write('\r\n\x1b[1;32mExecution finished. Press Enter to continue...\x1b[0m\r\n');
-      isGatewayExecution = true;
+      
+      // Chuyển đổi \n thành \r\n để xterm.js hiển thị đúng cột
+      const formattedData = data.replace(/\r?\n/g, '\r\n');
+      term.write(formattedData);
+      
+      // Chỉ báo hoàn thành khi nhận được tín hiệu thoát từ WorkerNode
+      if (data.includes('[Process Exited:')) {
+        term.write('\r\n\x1b[1;32mExecution finished. Press Enter to continue...\x1b[0m\r\n');
+        isGatewayExecution = true;
+      }
     });
   }
 

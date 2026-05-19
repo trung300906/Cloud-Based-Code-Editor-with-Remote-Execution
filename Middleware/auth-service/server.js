@@ -18,7 +18,7 @@ const {
 
 const PORT = Number(process.env.AUTH_PORT || 3000);
 const JWT_SECRET = process.env.JWT_HMAC_SECRET || "dev-hmac-secret";
-const JWT_TTL_SECONDS = Number(process.env.JWT_TTL_SECONDS || 604800); // 7 days
+const JWT_TTL_SECONDS = Number(process.env.JWT_TTL_SECONDS || 3600);
 
 const pool = new Pool({
   host: process.env.PGHOST || "127.0.0.1",
@@ -162,6 +162,49 @@ app.post("/logout", async (req, res) => {
     return res.status(200).json({ ok: true });
   } catch (err) {
     console.error("[AuthService] /logout error:", err.message || err);
+    return res.status(500).json({ error: "internal error" });
+  }
+});
+
+app.post("/refresh", async (req, res) => {
+  try {
+    const token = extractToken(req);
+    if (!token) {
+      return res.status(400).json({ error: "token required" });
+    }
+
+    let payload;
+    try {
+      payload = jwt.verify(token, JWT_SECRET, { ignoreExpiration: true });
+    } catch (_) {
+      return res.status(401).json({ error: "invalid token" });
+    }
+
+    const userId = payload?.sub;
+    if (!userId) {
+      return res.status(400).json({ error: "invalid token payload" });
+    }
+
+    const sessionKey = `user:session:${userId}`;
+    const storedToken = await redisClient.get(sessionKey);
+    if (!storedToken || storedToken !== token) {
+      return res.status(401).json({ error: "session revoked or superseded" });
+    }
+
+    const newToken = jwt.sign(
+      { sub: String(userId), username: payload.username },
+      JWT_SECRET,
+      { expiresIn: JWT_TTL_SECONDS },
+    );
+
+    // Overwrite the session in Redis with the new token
+    await redisClient.set(sessionKey, newToken, {
+      EX: JWT_TTL_SECONDS,
+    });
+
+    return res.status(200).json({ token: newToken });
+  } catch (err) {
+    console.error("[AuthService] /refresh error:", err.message || err);
     return res.status(500).json({ error: "internal error" });
   }
 });
