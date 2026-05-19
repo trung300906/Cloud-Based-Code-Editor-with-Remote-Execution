@@ -249,6 +249,11 @@ export async function initCustomMenubar() {
     }
   });
 
+  // ---- Activity tracking ----
+  let lastActivity = Date.now();
+  document.addEventListener("mousemove", () => { lastActivity = Date.now(); });
+  document.addEventListener("keydown", () => { lastActivity = Date.now(); });
+
   // ---- Theme toggle ----
   const themeBtn = document.getElementById("theme-toggle-btn");
   let isDarkMode = localStorage.getItem(LS.THEME) !== "light";
@@ -403,6 +408,19 @@ export async function initCustomMenubar() {
       }
     }
 
+    function isTokenExpiringSoon(token) {
+      try {
+        const parts = token.split(".");
+        if (parts.length !== 3) return false;
+        const payload = JSON.parse(atob(parts[1]));
+        if (!payload.exp) return false;
+        // Expiring in less than 15 minutes?
+        return (payload.exp * 1000) - Date.now() < 15 * 60 * 1000;
+      } catch (_) {
+        return false;
+      }
+    }
+
     // Khôi phục session: nếu profile đã lưu có token hợp lệ, gửi lại cho Main Process
     if (currentProfile?.loggedIn && currentProfile?.token) {
       if (isTokenExpired(currentProfile.token)) {
@@ -422,6 +440,43 @@ export async function initCustomMenubar() {
         console.log("[Menubar] Restored saved session token to Main Process.");
       }
     }
+
+    // Interval to check inactivity & auto-refresh token
+    setInterval(async () => {
+      if (!currentProfile?.loggedIn || !currentProfile?.token) return;
+
+      const inactiveMs = Date.now() - lastActivity;
+      if (inactiveMs > 3600000) { // 1 hour
+        console.warn("[Menubar] Inactive for 1 hour, auto logging out...");
+        alert("Phiên đăng nhập đã hết hạn do bạn không có hoạt động nào trong 1 giờ. Vui lòng đăng nhập lại.");
+        performLogout();
+        return;
+      }
+
+      if (isTokenExpiringSoon(currentProfile.token)) {
+        try {
+          const response = await fetch("http://100.124.23.95:3000/refresh", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Authorization": `Bearer ${currentProfile.token}`
+            }
+          });
+          const payload = await response.json();
+          if (response.ok && payload.token) {
+            console.log("[Menubar] Token successfully refreshed.");
+            currentProfile.token = payload.token;
+            await saveUserProfile(currentProfile);
+            renderUserProfile(currentProfile);
+            if (window.electronAPI?.loginSuccess) {
+              window.electronAPI.loginSuccess(payload.token);
+            }
+          }
+        } catch (err) {
+          console.error("[Menubar] Failed to refresh token:", err);
+        }
+      }
+    }, 60000); // Check every minute
 
     if (loginBtn) {
       loginBtn.addEventListener("click", async () => {
