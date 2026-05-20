@@ -118,9 +118,12 @@ function buildFolderLabel(item, li) {
   arrow.className = "tree-arrow";
   arrow.textContent = "▶";
 
+  const FOLDER_CLOSED = `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="vertical-align: middle;"><path d="M1.5 3A1.5 1.5 0 000 4.5v8A1.5 1.5 0 001.5 14h13a1.5 1.5 0 001.5-1.5v-7A1.5 1.5 0 0014.5 4H8.5L6.8 2.3A1.5 1.5 0 005.7 1.8h-4.2z" fill="#dcb67a"/></svg>`;
+  const FOLDER_OPEN = `<svg width="15" height="15" viewBox="0 0 16 16" fill="none" style="vertical-align: middle;"><path d="M1.5 4.5A1.5 1.5 0 000 6v6.5A1.5 1.5 0 001.5 14h13a1.5 1.5 0 001.5-1.5V7.5A1.5 1.5 0 0014.5 6H8.5L6.8 4.3A1.5 1.5 0 005.7 3.8h-4.2z" fill="#dcb67a"/></svg>`;
+
   const icon = document.createElement("span");
   icon.className = "tree-icon";
-  icon.textContent = "📁";
+  icon.innerHTML = FOLDER_CLOSED;
 
   const name = document.createElement("span");
   name.className = "tree-name";
@@ -138,7 +141,7 @@ function buildFolderLabel(item, li) {
     state.currentDirPath = item.path;
     const isOpen = li.classList.toggle("open");
     arrow.textContent = isOpen ? "▼" : "▶";
-    icon.textContent = isOpen ? "📂" : "📁";
+    icon.innerHTML = isOpen ? FOLDER_OPEN : FOLDER_CLOSED;
     // childrenUl đã là sibling thứ 2 của li
     const ul = li.querySelector(".tree-children");
     if (ul) ul.style.display = isOpen ? "block" : "none";
@@ -158,7 +161,7 @@ function buildFileLabel(item) {
 
   const iconEl = document.createElement("span");
   iconEl.className = "tree-icon";
-  iconEl.textContent = getFileIcon(item.name);
+  iconEl.innerHTML = getFileIcon(item.name);
 
   const nameEl = document.createElement("span");
   nameEl.className = "tree-name";

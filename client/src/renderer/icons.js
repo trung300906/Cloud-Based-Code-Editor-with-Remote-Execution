@@ -53,41 +53,46 @@ export const BC_ICON = {
  */
 export function getFileIcon(filename) {
   const ext = filename.split(".").pop().toLowerCase();
+  
   const m = {
-    cpp: "⚙️",
-    cc: "⚙️",
-    cxx: "⚙️",
-    c: "⚙️",
-    h: "⚙️",
-    hpp: "⚙️",
-    py: "🐍",
-    js: "📜",
-    ts: "📜",
-    jsx: "📜",
-    tsx: "📜",
-    html: "🌐",
-    htm: "🌐",
-    css: "🎨",
-    scss: "🎨",
-    json: "📋",
-    yaml: "📋",
-    yml: "📋",
-    toml: "📋",
-    xml: "📋",
-    md: "📝",
-    txt: "📝",
-    mmd: "🔷",
-    rs: "🦀",
-    go: "🔵",
-    java: "☕",
-    rb: "💎",
-    sh: "🖥️",
-    bash: "🖥️",
-    sql: "🗄️",
-    dockerfile: "🐳",
-    makefile: "🔧",
+    cpp: "devicon-cplusplus-plain colored",
+    cc: "devicon-cplusplus-plain colored",
+    cxx: "devicon-cplusplus-plain colored",
+    c: "devicon-c-plain colored",
+    h: "devicon-c-plain colored",
+    hpp: "devicon-cplusplus-plain colored",
+    py: "devicon-python-plain colored",
+    js: "devicon-javascript-plain colored",
+    ts: "devicon-typescript-plain colored",
+    jsx: "devicon-react-original colored",
+    tsx: "devicon-react-original colored",
+    html: "devicon-html5-plain colored",
+    htm: "devicon-html5-plain colored",
+    css: "devicon-css3-plain colored",
+    scss: "devicon-sass-original colored",
+    json: "devicon-json-plain colored",
+    yaml: "devicon-yaml-plain colored",
+    yml: "devicon-yaml-plain colored",
+    toml: "devicon-toml-plain colored",
+    xml: "devicon-xml-plain colored",
+    md: "devicon-markdown-original",
+    rs: "devicon-rust-plain",
+    go: "devicon-go-original-wordmark colored",
+    java: "devicon-java-plain colored",
+    rb: "devicon-ruby-plain colored",
+    sh: "devicon-bash-plain",
+    bash: "devicon-bash-plain",
+    sql: "devicon-sqldeveloper-plain colored",
+    dockerfile: "devicon-docker-plain colored",
   };
-  return m[ext] || "📄";
+
+  if (m[ext]) {
+    // We add a tiny margin or flex-centering to make it look aligned
+    return `<i class="${m[ext]}" style="font-size: 14px; width: 14px; height: 14px; display: inline-flex; align-items: center; justify-content: center; vertical-align: middle;"></i>`;
+  }
+  
+  // Sleek SVG fallback for unknown files
+  return `<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3" style="opacity: 0.7; vertical-align: middle; display: inline-flex; align-items: center; justify-content: center;"><path d="M4 1h6l4 4v10H4V1z"/><polyline points="10,1 10,5 14,5"/></svg>`;
 }
 
 /**
