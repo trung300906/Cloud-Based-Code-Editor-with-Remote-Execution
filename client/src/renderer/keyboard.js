@@ -55,7 +55,7 @@ export function initKeyboardShortcuts() {
       handleMenuAction("toggle-fullscreen");
     } else if (ctrl && e.shiftKey && (e.key === "I" || e.key === "i")) {
       e.preventDefault();
-      handleMenuAction("toggle-devtools");
+      handleMenuAction("format-code");
     } else if (ctrl && e.shiftKey && (e.key === "R" || e.key === "r")) {
       e.preventDefault();
       handleMenuAction("reload");
