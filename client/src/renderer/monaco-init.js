@@ -117,6 +117,62 @@ require(["vs/editor/editor.main"], function () {
   buildLangDropdown();
   registerMermaidLanguage();
 
+  // Helper formatter for brace-based languages (C, C++, Java, etc.)
+  function formatBraceLanguage(code, options) {
+    const tabSize = options.tabSize || 4;
+    const insertSpaces = options.insertSpaces !== false;
+    const indentStr = insertSpaces ? ' '.repeat(tabSize) : '\t';
+    
+    const lines = code.split('\n');
+    let indentLevel = 0;
+    const result = [];
+    
+    for (let i = 0; i < lines.length; i++) {
+      const rawLine = lines[i].trim();
+      if (rawLine === '') {
+        result.push('');
+        continue;
+      }
+      
+      // Remove strings and comments to analyze braces cleanly
+      let cleanLine = rawLine
+        .replace(/"([^"\\]|\\.)*"/g, '')
+        .replace(/'([^'\\]|\\.)*'/g, '')
+        .replace(/\/\/.*$/g, '')
+        .replace(/\/\*[\s\S]*?\*\//g, '');
+        
+      let openBraces = (cleanLine.match(/\{/g) || []).length;
+      let closeBraces = (cleanLine.match(/\}/g) || []).length;
+      
+      let thisLineIndent = indentLevel;
+      if (cleanLine.trim().startsWith('}')) {
+        thisLineIndent = Math.max(0, thisLineIndent - 1);
+      }
+      
+      result.push(indentStr.repeat(thisLineIndent) + rawLine);
+      indentLevel = Math.max(0, indentLevel + openBraces - closeBraces);
+    }
+    
+    return result.join('\n');
+  }
+
+  const braceFormatter = {
+    provideDocumentFormattingEdits(model, options, token) {
+      const code = model.getValue();
+      const formatted = formatBraceLanguage(code, options);
+      return [
+        {
+          range: model.getFullModelRange(),
+          text: formatted,
+        },
+      ];
+    },
+  };
+
+  monaco.languages.registerDocumentFormattingEditProvider("cpp", braceFormatter);
+  monaco.languages.registerDocumentFormattingEditProvider("c", braceFormatter);
+  monaco.languages.registerDocumentFormattingEditProvider("java", braceFormatter);
+
   // Tạo editor cho pane đầu tiên (đã được tạo bởi initRootPane ở DOMContentLoaded)
   const pane = state.panes[0];
   if (pane && !pane.editor) {

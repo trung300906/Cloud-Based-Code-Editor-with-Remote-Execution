@@ -21,9 +21,9 @@ export const PALETTE_COMMANDS = [
   { label: "Zoom Out", shortcut: "Ctrl+-", action: "zoom-out" },
   { label: "Reset Zoom", shortcut: "Ctrl+0", action: "reset-zoom" },
   {
-    label: "Developer Tools",
+    label: "Format Document",
     shortcut: "Ctrl+Shift+I",
-    action: "toggle-devtools",
+    action: "format-code",
   },
   { label: "Reload Window", shortcut: "Ctrl+Shift+R", action: "reload" },
   { label: "Minimize Window", shortcut: "", action: "minimize" },

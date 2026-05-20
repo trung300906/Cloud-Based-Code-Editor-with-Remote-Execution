@@ -116,6 +116,16 @@ export function handleMenuAction(action) {
     case "toggle-devtools":
       window.electronAPI.winToggleDevtools();
       break;
+    case "format-code":
+      getFocusedPane()?.editor?.trigger(
+        "menu",
+        "editor.action.formatDocument",
+        null,
+      );
+      if (window.showToast) {
+        window.showToast("Formatted document", window.ToastType.SUCCESS);
+      }
+      break;
 
     // Window
     case "minimize":
