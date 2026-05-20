@@ -242,13 +242,21 @@ app.whenReady().then(() => {
   ipcMain.on("run-code", (_event, data) => {
     console.log(`[Main] Requesting remote code execution (lang: ${data.lang})...`);
     currentRunId = "run_" + Date.now();
-    tcpClient.send(tcpClient.TYPE.RUN, currentRunId, {
+    const success = tcpClient.send(tcpClient.TYPE.RUN, currentRunId, {
        action: "execute",
        language: data.lang,
        code: data.code,
        projectId: currentProjectId,
        entryPoint: data.entryPoint || "main.cpp"
     }, { encrypt: true });
+    
+    if (!success) {
+       console.log("[Main] Server offline, code execution aborted.");
+       if (mainWindow && !mainWindow.isDestroyed()) {
+         mainWindow.webContents.send("terminal-output", "\r\n\x1b[1;31m[Error] ❌ Server is currently offline. Cannot execute code.\x1b[0m\r\n[Process Exited: 1]");
+         mainWindow.webContents.send("show-toast", { message: "Server is offline. Cannot run code.", type: "error" });
+       }
+    }
   });
 
   ipcMain.on("run-input", (_event, inputData) => {
