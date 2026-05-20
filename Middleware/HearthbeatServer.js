@@ -120,7 +120,7 @@ class HeartbeatServer {
             }
         }
         // Nếu chọn được worker tốt nhất, trừ ngay lập tức 1 slot rảnh ở bộ nhớ cục bộ (in-memory) của Gateway.
-        // Điều này ngăn chặn việc 100 request ập vào cùng 1 miligiây đều chọn trúng 1 worker duy nhất (Thundering Herd Effect).
+        // Điều này tránh việc 100 request ập vào cùng 1 miligiây đều chọn trúng 1 worker duy nhất (Thundering Herd Effect).
         // Khi Worker chính thức chạy job và gửi Heartbeat mới lên, nó sẽ ghi đè lại trạng thái thực tế chính xác.
         if (best && bestNodeId) {
             const info = this.registry.get(bestNodeId);
