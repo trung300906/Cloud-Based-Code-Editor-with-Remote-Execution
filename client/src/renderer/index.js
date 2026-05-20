@@ -5,6 +5,7 @@
 // song song với DOMContentLoaded (Monaco tải async từ CDN).
  
 import "./monaco-init.js";
+import "./toast.js";
 
 import { state, LS } from "./state.js";
 import { initRootPane } from "./pane.js";
@@ -126,3 +127,11 @@ window.electronAPI.onBinaryFileOpen((data) => {
 
 /** Mở folder từ File > Open Folder hoặc restore session */
 window.electronAPI.onFolderOpened(onFolderOpened);
+
+if (window.electronAPI.onShowToast) {
+  window.electronAPI.onShowToast(({ message, type, title, duration }) => {
+    if (window.showToast) {
+      window.showToast(message, type, title, duration);
+    }
+  });
+}

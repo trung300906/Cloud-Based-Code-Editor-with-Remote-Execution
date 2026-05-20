@@ -276,9 +276,10 @@ export function unlockTerminal() {
   isGatewayExecution = false;
   const activeTerm = terminals.get(activeTerminalId);
   if (activeTerm) {
-    activeTerm.term.clear();
     if (window.electronAPI) {
-      window.electronAPI.sendPtyInput(activeTerminalId, '\r');
+      // Gửi Ctrl+C (0x03) kết hợp Enter (0x0D) để buộc bash in lại prompt ngay lập tức
+      // tránh bị dính input thừa nếu người dùng lỡ gõ bậy lúc locked
+      window.electronAPI.sendPtyInput(activeTerminalId, '\x03\r');
     }
   }
 }

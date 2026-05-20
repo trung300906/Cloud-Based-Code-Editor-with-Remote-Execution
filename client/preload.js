@@ -58,6 +58,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   sendRunCode: (data) => ipcRenderer.send('run-code', data),
   sendRunInput: (data) => ipcRenderer.send('run-input', data),
   onTerminalOutput: (cb) => ipcRenderer.on('terminal-output', (e, data) => cb(data)),
+  onShowToast: (cb) => ipcRenderer.on('show-toast', (e, data) => cb(data)),
   
   // PTY events
   startPty: (terminalId) => ipcRenderer.invoke('terminal-pty-start', terminalId),

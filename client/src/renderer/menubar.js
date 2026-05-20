@@ -29,6 +29,10 @@ export function doSave() {
       tab.isModified = false;
       refreshTabElImport(pane.activeTabId);
     }
+    if (window.showToast) {
+      const fileName = state.currentFilePath.split(/[/\\]/).pop();
+      window.showToast(`Saved ${fileName}`, window.ToastType.SUCCESS);
+    }
   }
 }
 
@@ -680,6 +684,9 @@ export async function initCustomMenubar() {
           tmp.select();
           document.execCommand("copy");
           tmp.remove();
+        }
+        if (window.showToast) {
+          window.showToast("Token copied to clipboard", window.ToastType.INFO);
         }
       });
     }
