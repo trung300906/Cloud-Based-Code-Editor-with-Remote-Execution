@@ -123,7 +123,10 @@ async function createTerminal(namePrefix = "bash") {
 
   let id = null;
   if (window.electronAPI) {
-    id = await window.electronAPI.startPty();
+    const result = await window.electronAPI.startPty();
+    id = typeof result === "object" ? result.id : result;
+    const shellName = typeof result === "object" ? result.shell : namePrefix;
+    termObj.name = `${shellName} ${terminals.size + 1}`;
     
     termObj.term.onData((data) => {
       console.log(`[Terminal] Key pressed, isLocked: ${isLocked}, isGatewayExecution: ${isGatewayExecution}, key: ${JSON.stringify(data)}`);
@@ -209,7 +212,8 @@ function removeTerminalFromUI(id) {
   if (option) option.remove();
 
   if (terminals.size === 0) {
-    createTerminal(); // always keep at least one
+    activeTerminalId = null;
+    hideTerminal();
   } else if (activeTerminalId === id) {
     // Switch to another terminal
     const nextId = terminals.keys().next().value;
@@ -229,9 +233,14 @@ export function showTerminal() {
   if (terminalWrapper.style.display === "none") {
     terminalWrapper.style.display = "flex";
     terminalResizeHandle.style.display = "block";
-    const activeTerm = terminals.get(activeTerminalId);
-    if (activeTerm) {
-      setTimeout(() => activeTerm.fitAddon.fit(), 10);
+    
+    if (terminals.size === 0) {
+      createTerminal();
+    } else {
+      const activeTerm = terminals.get(activeTerminalId);
+      if (activeTerm) {
+        setTimeout(() => activeTerm.fitAddon.fit(), 10);
+      }
     }
   }
 }
