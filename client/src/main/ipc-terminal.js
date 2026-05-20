@@ -13,7 +13,7 @@ function registerTerminalIPC(mainWindow, getWorkspaceRoot) {
       terminalId = "term_" + Date.now() + "_" + Math.floor(Math.random() * 1000);
     }
     
-    if (ptyProcesses.has(terminalId)) return terminalId;
+    if (ptyProcesses.has(terminalId)) return { id: terminalId, shell: require("path").basename(shell) };
 
     const cwd = getWorkspaceRoot() || process.env.HOME || process.env.USERPROFILE;
 
@@ -39,7 +39,10 @@ function registerTerminalIPC(mainWindow, getWorkspaceRoot) {
     });
 
     ptyProcesses.set(terminalId, ptyProcess);
-    return terminalId;
+    
+    // Extract shell name without path (e.g., "bash", "zsh", "fish", "powershell.exe")
+    const shellName = require("path").basename(shell);
+    return { id: terminalId, shell: shellName };
   });
 
   ipcMain.on("terminal-pty-input", (event, { id, data }) => {
