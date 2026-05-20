@@ -85,12 +85,14 @@ class HeartbeatServer {
         _log('info', '[HeartbeatServer] Stopped.');
     }
 
-    // Trả về worker phù hợp nhất: ưu tiên idleSlots cao, CPU thấp.
-    // Trả null nếu không có worker nào sẵn sàng.
+    // Trả về worker phù hợp nhất: tích hợp idleSlots (khe rảnh), CPU load average và Free RAM (GB).
+    // Đứa nào trống trải tài nguyên nhiều nhất sẽ được ưu tiên đẩy việc vào.
     getBestWorker() {
         const now = Date.now();
         let best = null;
         let bestScore = -Infinity;
+
+        let bestNodeId = null;
 
         for (const [nodeId, info] of this.registry.entries()) {
             // Bỏ qua entry stale chưa kịp bị prune
@@ -98,16 +100,33 @@ class HeartbeatServer {
             if (info.idleSlots <= 0) continue;
             if (!info.workerPort) continue;
 
-            // Score: nhiều slot rảnh = tốt, CPU cao = xấu
-            const score = info.idleSlots - info.cpu;
+            // Đổi bytes RAM trống thành đơn vị Gigabytes (GB)
+            const ramFreeGB = (info.ramFreeBytes || 0) / (1024 * 1024 * 1024);
+
+            // Công thức tính Score trọng số (Weighted Scoring System):
+            // - idleSlots (Trọng số 10.0): Chỉ số quyết định khả năng nhận job song song
+            // - cpu loadavg (Trọng số -5.0): Trừ điểm nặng nếu hệ điều hành đang quá tải CPU
+            // - ramFreeGB (Trọng số 2.0): Thêm điểm cộng nếu máy trạm còn dồi dào RAM trống (để compile)
+            const score = (info.idleSlots * 10.0) - (info.cpu * 5.0) + (ramFreeGB * 2.0);
 
             if (score > bestScore) {
                 bestScore = score;
+                bestNodeId = nodeId;
                 best = {
                     nodeId,
                     host: info.socket.remoteAddress,
-                    port: info.workerPort,   // Fix: không hardcode port
+                    port: info.workerPort,
                 };
+            }
+        }
+        // Nếu chọn được worker tốt nhất, trừ ngay lập tức 1 slot rảnh ở bộ nhớ cục bộ (in-memory) của Gateway.
+        // Điều này ngăn chặn việc 100 request ập vào cùng 1 miligiây đều chọn trúng 1 worker duy nhất (Thundering Herd Effect).
+        // Khi Worker chính thức chạy job và gửi Heartbeat mới lên, nó sẽ ghi đè lại trạng thái thực tế chính xác.
+        if (best && bestNodeId) {
+            const info = this.registry.get(bestNodeId);
+            if (info) {
+                info.idleSlots = Math.max(0, info.idleSlots - 1);
+                info.busySlots = (info.busySlots || 0) + 1;
             }
         }
 
