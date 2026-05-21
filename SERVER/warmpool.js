@@ -268,11 +268,8 @@ class WarmPoolBootstrapper {
     const imageByTag = String(cfg.Image || "") === String(this.image);
     const imageMatches = imageById || imageByTag;
 
-    const wsTmpfsMatches =
-      ws.includes("size=" + this.workspaceSize) &&
-      ws.includes("uid=" + this.sandboxUid) &&
-      ws.includes("gid=" + this.sandboxGid);
-
+    const binds = hc.Binds || [];
+    const bindsMatches = binds.includes("/tmp/zera_jobs:/workspace:rw");
     const tmpTmpfsMatches = tmp.includes("size=" + this.tmpSize);
 
     return (
@@ -285,7 +282,7 @@ class WarmPoolBootstrapper {
       Number(hc.Memory || 0) === this.memoryLimitBytes &&
       Number(hc.NanoCpus || 0) === this.nanoCpus &&
       Number(hc.PidsLimit || 0) === this.pidsLimit &&
-      wsTmpfsMatches &&
+      bindsMatches &&
       tmpTmpfsMatches
     );
   }
@@ -381,15 +378,10 @@ class WarmPoolBootstrapper {
           HostConfig: {
             ReadonlyRootfs: true,
             NetworkMode: "none",
+            Binds: [
+              "/tmp/zera_jobs:/workspace:rw"
+            ],
             Tmpfs: {
-              "/workspace":
-                "rw,size=" +
-                this.workspaceSize +
-                ",uid=" +
-                this.sandboxUid +
-                ",gid=" +
-                this.sandboxGid +
-                ",mode=700",
               "/tmp": "rw,size=" + this.tmpSize + ",mode=1777",
             },
             Memory: this.memoryLimitBytes,
