@@ -282,7 +282,7 @@ export async function initCustomMenubar() {
       if (isDarkMode) {
         document.body.classList.remove("light-mode");
         themeBtn.textContent = "☀️ Light Mode: OFF";
-        if (typeof monaco !== "undefined") monaco.editor.setTheme("vs-dark");
+        if (typeof monaco !== "undefined") monaco.editor.setTheme("zera-dark");
       } else {
         document.body.classList.add("light-mode");
         themeBtn.textContent = "☀️ Light Mode: ON";

@@ -105,12 +105,24 @@ export function openOrActivateTab(filePath, content, paneId) {
   }
   applyEditorSettingsToModel(model, loadEditorSettings());
 
+  let lintTimeout = null;
   model.onDidChangeContent(() => {
     const t = state.tabs.get(id);
     if (t && !t.isModified) {
       t.isModified = true;
       refreshTabEl(id);
     }
+
+    // Remote Linting Debounce
+    if (lintTimeout) clearTimeout(lintTimeout);
+    lintTimeout = setTimeout(() => {
+      if (window.electronAPI && window.electronAPI.sendLintCode) {
+        window.electronAPI.sendLintCode({
+          lang: lang,
+          code: model.getValue()
+        });
+      }
+    }, 800);
   });
 
   state.tabs.set(id, { id, filePath, label, model, isModified: false });

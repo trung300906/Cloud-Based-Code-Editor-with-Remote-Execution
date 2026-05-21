@@ -135,3 +135,16 @@ if (window.electronAPI.onShowToast) {
     }
   });
 }
+
+if (window.electronAPI.onLintResult) {
+  window.electronAPI.onLintResult((markers) => {
+    if (!state.monacoReady) return;
+    const pane = state.panes.find(p => p.id === state.focusedPaneId);
+    if (pane && pane.editor) {
+      const model = pane.editor.getModel();
+      if (model && Array.isArray(markers)) {
+        monaco.editor.setModelMarkers(model, "remote-linter", markers);
+      }
+    }
+  });
+}

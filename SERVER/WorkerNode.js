@@ -25,6 +25,7 @@ const TYPE = {
     CHAT:   0x05,
     RESULT: 0x06,
     INPUT:  0x07,
+    LINT:   0x08,
     PING:   0xFF
 };
 
@@ -395,18 +396,128 @@ async function main() {
         });
     }
 
+    function handleLint(socket, requestId, bodyBuf) {
+        const rid = String(requestId);
+        let spec;
+        try {
+            spec = JSON.parse(Buffer.from(bodyBuf || '').toString('utf8'));
+        } catch (err) { return; }
+
+        const language = String(spec?.language || '').toLowerCase();
+        const code = spec?.code || '';
+        if (!code) return;
+
+        const safeRid = "lint_" + String(rid).replace(/[^a-zA-Z0-9_-]/g, '');
+        const jobDir = path.join('/tmp', 'zera_jobs', safeRid);
+        const jobPayload = { rid: safeRid, spec: { language }, jobDir };
+
+        poolManager.dispatchJob(jobPayload, async (container, job) => {
+            try {
+                await fse.ensureDir(job.jobDir);
+                await fse.chmod(job.jobDir, 0o777);
+                
+                let ext = "txt", cmd = "";
+                if (language === 'cpp' || language === 'c++') {
+                    ext = "cpp";
+                    cmd = `g++ -fsyntax-only -Wall -fdiagnostics-color=never test.cpp`;
+                } else if (language === 'python' || language === 'py') {
+                    ext = "py";
+                    cmd = `python3 -m py_compile test.py`;
+                } else {
+                    return;
+                }
+                
+                const entryAbs = _safeJoin(job.jobDir, `test.${ext}`);
+                await fse.outputFile(entryAbs, code);
+
+                const dockerContainer = poolManager.docker.getContainer(container.id);
+                const exec = await dockerContainer.exec({
+                    Cmd: ['sh', '-lc', cmd],
+                    AttachStdout: true,
+                    AttachStderr: true,
+                    User: 'sandbox_user',
+                    WorkingDir: `/workspace/${safeRid}`
+                });
+
+                const stream = await exec.start({ hijack: true, stdin: false });
+                let output = '';
+                await new Promise((resolve) => {
+                    dockerContainer.modem.demuxStream(stream, 
+                        { write: (chunk) => { output += chunk.toString(); } },
+                        { write: (chunk) => { output += chunk.toString(); } }
+                    );
+                    
+                    const timer = setTimeout(() => { if (stream.destroy) stream.destroy(); }, 3000); // 3s timeout for lint
+                    stream.on('end', () => {
+                        clearTimeout(timer);
+                        resolve();
+                    });
+                });
+
+                const markers = [];
+                const lines = output.split('\n');
+                
+                if (language === 'cpp' || language === 'c++') {
+                    const cppRegex = /test\.cpp:(\d+):(\d+):\s+(error|warning):\s+(.*)/;
+                    for (const line of lines) {
+                        const match = line.match(cppRegex);
+                        if (match) {
+                            markers.push({
+                                severity: match[3] === 'error' ? 8 : 4,
+                                startLineNumber: parseInt(match[1]),
+                                startColumn: parseInt(match[2]),
+                                endLineNumber: parseInt(match[1]),
+                                endColumn: parseInt(match[2]) + 1,
+                                message: match[4]
+                            });
+                        }
+                    }
+                } else if (language === 'python' || language === 'py') {
+                    const pyRegex = /File "test\.py", line (\d+)/;
+                    let lastLine = null;
+                    for (let i = 0; i < lines.length; i++) {
+                        const m = lines[i].match(pyRegex);
+                        if (m) lastLine = parseInt(m[1]);
+                        else if (lastLine && lines[i].includes('Error:')) {
+                            markers.push({
+                                severity: 8,
+                                startLineNumber: lastLine,
+                                startColumn: 1,
+                                endLineNumber: lastLine,
+                                endColumn: 99,
+                                message: lines[i].trim()
+                            });
+                            lastLine = null;
+                        }
+                    }
+                }
+                
+                if (socket.writable) {
+                    socket.write(buildFrame(TYPE.LINT, rid, JSON.stringify(markers)));
+                }
+
+            } catch (err) {
+                // ignore lint errors silently
+            } finally {
+                await fse.remove(job.jobDir).catch(() => {});
+            }
+        }).catch(() => {}); // ignore queue errors silently
+    }
+
     const server = net.createServer((socket) => {
         const remote = `${socket.remoteAddress}:${socket.remotePort}`;
         console.log(`[WorkerNode] Gateway connected: ${remote}`);
 
         const parser = new FrameParser(
             (type, payload) => {
-                if (type !== TYPE.RUN && type !== TYPE.INPUT) return;
+                if (type !== TYPE.RUN && type !== TYPE.INPUT && type !== TYPE.LINT) return;
                 const parsed = parseFramePayload(payload);
                 if (!parsed) return;
                 
                 if (type === TYPE.RUN) {
                     handleExec(socket, parsed.requestId, parsed.body);
+                } else if (type === TYPE.LINT) {
+                    handleLint(socket, parsed.requestId, parsed.body);
                 } else if (type === TYPE.INPUT) {
                     const stream = activeProcesses.get(parsed.requestId);
                     if (stream) {

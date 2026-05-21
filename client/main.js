@@ -239,6 +239,22 @@ app.whenReady().then(() => {
     }
   });
 
+  tcpClient.setLintCallback((data) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("lint-result", data);
+    }
+  });
+
+  ipcMain.on("lint-code", (_event, data) => {
+    const lintId = "lint_" + Date.now();
+    tcpClient.send(tcpClient.TYPE.LINT, lintId, {
+      action: "lint",
+      language: data.lang,
+      code: data.code,
+      projectId: currentProjectId
+    }, { encrypt: true });
+  });
+
   ipcMain.on("run-code", (_event, data) => {
     console.log(`[Main] Requesting remote code execution (lang: ${data.lang})...`);
     currentRunId = "run_" + Date.now();

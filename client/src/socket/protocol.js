@@ -11,6 +11,7 @@ const TYPE = {
   CHAT: 0x05,
   RESULT: 0x06,
   INPUT: 0x07,
+  LINT: 0x08,
   PING: 0xff,
 };
 
