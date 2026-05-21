@@ -62,6 +62,7 @@ const TYPE = {
   CHAT: 0x05,
   RESULT: 0x06,
   INPUT: 0x07,
+  LINT: 0x08,
   PING: 0xff,
 };
 
@@ -540,6 +541,7 @@ class GatewayServer {
         // 5. ROUTER BẺ LÁI GÓI TIN
         switch (type) {
           case TYPE.RUN:
+          case TYPE.LINT:
             this._routeToWorkerCluster(
               clientSocket,
               plainFrame,

@@ -8,6 +8,7 @@ import { state, LS } from "./state.js";
 import { ALL_LANGUAGES } from "./lang-detect.js";
 import { openOrActivateTab } from "./tab.js";
 import { getEditorCreateOptions } from "./editor-settings.js";
+import { oneDarkPro } from "./themes.js";
 
  
 // LANGUAGE DROPDOWN
@@ -173,10 +174,12 @@ require(["vs/editor/editor.main"], function () {
   monaco.languages.registerDocumentFormattingEditProvider("c", braceFormatter);
   monaco.languages.registerDocumentFormattingEditProvider("java", braceFormatter);
 
+  monaco.editor.defineTheme("zera-dark", oneDarkPro);
+
   // Tạo editor cho pane đầu tiên (đã được tạo bởi initRootPane ở DOMContentLoaded)
   const pane = state.panes[0];
   if (pane && !pane.editor) {
-    const theme = document.body.classList.contains("light-mode") ? "vs" : "vs-dark";
+    const theme = document.body.classList.contains("light-mode") ? "vs" : "zera-dark";
     pane.editor = monaco.editor.create(pane.containerEl, {
       value: "",
       language: "cpp",
@@ -199,5 +202,7 @@ require(["vs/editor/editor.main"], function () {
   // Áp dụng theme đã lưu
   if (localStorage.getItem(LS.THEME) === "light") {
     monaco.editor.setTheme("vs");
+  } else {
+    monaco.editor.setTheme("zera-dark");
   }
 });

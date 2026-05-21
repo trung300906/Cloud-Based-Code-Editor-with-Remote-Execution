@@ -89,8 +89,8 @@ export function initTerminal() {
       activeTerm.term.write(formatOutput(data));
       
       if (typeof data === 'string' && (data.includes('[Process Exited:') || data.includes('[❌ Error'))) {
-        activeTerm.term.write('\r\n\x1b[1;32mExecution finished. Press Enter to continue...\x1b[0m\r\n');
-        isGatewayExecution = true;
+        // Tự động unlock thay vì bắt user bấm Enter
+        unlockTerminal();
       }
     });
   }
