@@ -12,6 +12,8 @@ const {
 } = require('@aws-sdk/client-s3');
 const HeartbeatWorker       = require('./HearthbeatWorker.js');
 const { encryptPayload } = require('../Middleware/cryptoUtils.js');
+const tar = require('tar-fs');
+const { MasterPoolManager } = require('./PoolManager.js');
 
 // ─── ĐÃ ĐỒNG BỘ TỪ ĐIỂN TYPE VỚI GATEWAY ────────────────────────
 const TYPE = {
@@ -189,152 +191,10 @@ async function pullWorkspaceFromMinio(jobDir, ownerId, projectId) {
     }
 }
 
+
+
 function _quoteSh(str) {
-    // Minimal safe quoting for sh -c by wrapping in single quotes.
     return `'${String(str).replace(/'/g, "'\\''")}'`;
-}
-
-async function runCppJob({ jobDir, entryPoint, timeoutMs, childProcessRef, onStdout, onStderr }) {
-    const entry = String(entryPoint || '').trim();
-    if (!entry) throw new Error('missing entryPoint');
-    if (path.isAbsolute(entry)) throw new Error('entryPoint must be relative');
-    if (entry.includes('\u0000')) throw new Error('invalid entryPoint');
-
-    // Ensure entry exists inside the pulled workspace.
-    const entryAbs = _safeJoin(jobDir, entry);
-    if (!entryAbs) throw new Error('invalid entryPoint path');
-    const exists = await fse.pathExists(entryAbs);
-    if (!exists) throw new Error(`entryPoint not found: ${entry}`);
-
-    const cmd = `g++ ${_quoteSh(entry)} -o main && ./main`;
-
-    const child = spawn('sh', ['-lc', cmd], {
-        cwd: jobDir,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: process.env,
-        detached: true,
-    });
-
-    childProcessRef(child);
-
-    child.stdout.on('data', onStdout);
-    child.stderr.on('data', onStderr);
-
-    let timedOut = false;
-    const kill = () => {
-        try {
-            process.kill(-child.pid, 'SIGKILL');
-        } catch (_) {
-            try { child.kill('SIGKILL'); } catch (_) {}
-        }
-    };
-
-    const timer = setTimeout(() => {
-        timedOut = true;
-        kill();
-    }, timeoutMs);
-
-    const result = await new Promise((resolve, reject) => {
-        child.on('error', reject);
-        child.on('close', (code, signal) => resolve({ code, signal }));
-    }).finally(() => clearTimeout(timer));
-
-    return { ...result, timedOut };
-}
-
-async function runPythonJob({ jobDir, entryPoint, timeoutMs, childProcessRef, onStdout, onStderr }) {
-    const entry = String(entryPoint || '').trim();
-    if (!entry) throw new Error('missing entryPoint');
-    if (path.isAbsolute(entry)) throw new Error('entryPoint must be relative');
-    if (entry.includes('\u0000')) throw new Error('invalid entryPoint');
-
-    // Ensure entry exists inside the pulled workspace.
-    const entryAbs = _safeJoin(jobDir, entry);
-    if (!entryAbs) throw new Error('invalid entryPoint path');
-    const exists = await fse.pathExists(entryAbs);
-    if (!exists) throw new Error(`entryPoint not found: ${entry}`);
-
-    const cmd = `python3 ${_quoteSh(entry)}`;
-
-    const child = spawn('sh', ['-lc', cmd], {
-        cwd: jobDir,
-        stdio: ['pipe', 'pipe', 'pipe'],
-        env: process.env,
-        detached: true,
-    });
-
-    childProcessRef(child);
-
-    child.stdout.on('data', onStdout);
-    child.stderr.on('data', onStderr);
-
-    let timedOut = false;
-    const kill = () => {
-        try {
-            process.kill(-child.pid, 'SIGKILL');
-        } catch (_) {
-            try { child.kill('SIGKILL'); } catch (_) {}
-        }
-    };
-
-    const timer = setTimeout(() => {
-        timedOut = true;
-        kill();
-    }, timeoutMs);
-
-    const result = await new Promise((resolve, reject) => {
-        child.on('error', reject);
-        child.on('close', (code, signal) => resolve({ code, signal }));
-    }).finally(() => clearTimeout(timer));
-
-    return { ...result, timedOut };
-}
-
-class JobScheduler {
-    constructor(opts = {}) {
-        this.maxConcurrent = Number(opts.maxConcurrent ?? 1);
-        if (!Number.isFinite(this.maxConcurrent) || this.maxConcurrent < 1) {
-            this.maxConcurrent = 1;
-        }
-        this.queueTimeoutMs = Number(opts.queueTimeoutMs ?? 30000);
-        this.onExpire = typeof opts.onExpire === 'function' ? opts.onExpire : null;
-        this.busy = 0;
-        this.queue = [];
-    }
-
-    stats() {
-        const idle = Math.max(0, this.maxConcurrent - this.busy);
-        return { idle, busy: this.busy, total: this.maxConcurrent };
-    }
-
-    enqueue(task) {
-        this.queue.push({ ...task, enqueuedAt: Date.now() });
-        this._drain();
-    }
-
-    _drain() {
-        while (this.busy < this.maxConcurrent && this.queue.length > 0) {
-            const item = this.queue.shift();
-            if (!item) break;
-
-            const age = Date.now() - item.enqueuedAt;
-            if (age > this.queueTimeoutMs) {
-                if (this.onExpire) {
-                    try { this.onExpire(item); } catch (_) {}
-                }
-                continue;
-            }
-
-            this.busy += 1;
-            Promise.resolve()
-                .then(() => item.run())
-                .catch(() => null)
-                .finally(() => {
-                    this.busy -= 1;
-                    this._drain();
-                });
-        }
-    }
 }
 
 // ─── WorkerNode ─────────────────────────────────────────────────
@@ -345,147 +205,193 @@ async function main() {
     const GATEWAY_PORT = Number(process.env.GATEWAY_HB_PORT || 4000);
     const NODE_ID      = process.env.NODE_ID               || `worker-${os.hostname()}`;
 
-    console.log('[WorkerNode] Phase 3 — Worker Pull Execution Model');
+    console.log('[WorkerNode] Phase 3 — Docker Pool Execution Model');
     console.log(`[WorkerNode] MinIO endpoint=${MINIO_ENDPOINT} bucket=${MINIO_BUCKET}`);
 
-    const scheduler = new JobScheduler({
-        maxConcurrent: WORKER_SLOTS,
+    // Create the jobs directory BEFORE Docker daemon starts containers to ensure it is owned by the Worker node user
+    await fse.ensureDir('/tmp/zera_jobs');
+    await fse.chmod('/tmp/zera_jobs', 0o777);
+
+    const poolManager = new MasterPoolManager({
+        maxPoolSize: WORKER_SLOTS,
         queueTimeoutMs: QUEUE_TIMEOUT_MS,
-        onExpire(item) {
-            const rid = item.requestId;
+        onQueuedJobError(err, queued) {
+            const rid = queued.payload.job.rid;
             const sock = pendingRequests.get(rid);
             if (sock?.writable) {
-                sock.write(buildFrame(TYPE.ERROR, rid, 'queue timeout'));
+                sock.write(buildFrame(TYPE.ERROR, rid, `Job failed in queue: ${err.message}`));
             }
             pendingRequests.delete(rid);
         },
+        onQueueExpire(item) {
+            const rid = item.payload.job.rid;
+            const sock = pendingRequests.get(rid);
+            if (sock?.writable) {
+                sock.write(buildFrame(TYPE.ERROR, rid, 'Queue timeout'));
+            }
+            pendingRequests.delete(rid);
+        }
     });
+
+    await poolManager.init();
 
     const heartbeat = new HeartbeatWorker({
         gatewayHost: GATEWAY_HOST,
         gatewayPort: GATEWAY_PORT,
         nodeId:      NODE_ID,
         workerPort:  WORKER_PORT,
-        poolManager: scheduler,
+        poolManager: poolManager,
     });
     heartbeat.start();
 
     function handleExec(socket, requestId, bodyBuf) {
         pendingRequests.set(requestId, socket);
-
         const rid = String(requestId);
 
-        scheduler.enqueue({
-            requestId: rid,
-            run: async () => {
-                const sock = pendingRequests.get(rid);
-                if (!sock || sock.destroyed) {
-                    pendingRequests.delete(rid);
-                    return;
+        let spec;
+        try {
+            spec = JSON.parse(Buffer.from(bodyBuf || '').toString('utf8'));
+        } catch (err) {
+            if (socket.writable) socket.write(buildFrame(TYPE.ERROR, rid, 'Bad RUN payload JSON'));
+            pendingRequests.delete(rid);
+            return;
+        }
+
+        const ownerId = spec?.ownerId;
+        const projectId = spec?.projectId;
+        const language = String(spec?.language || '').toLowerCase();
+        const entryPoint = spec?.entryPoint;
+
+        if (ownerId === undefined || projectId === undefined || !language || !entryPoint) {
+            if (socket.writable) {
+                socket.write(buildFrame(TYPE.ERROR, rid, 'Missing fields. Received: ' + JSON.stringify(spec)));
+            }
+            pendingRequests.delete(rid);
+            return;
+        }
+
+        // Remove non-alphanumeric chars for safety
+        const safeRid = String(rid).replace(/[^a-zA-Z0-9_-]/g, '');
+        const jobDir = path.join('/tmp', 'zera_jobs', safeRid);
+        const jobPayload = { rid, spec, jobDir };
+
+        poolManager.dispatchJob(jobPayload, async (container, job) => {
+            const sock = pendingRequests.get(job.rid);
+            if (!sock || sock.destroyed) return;
+
+            try {
+                await fse.ensureDir(job.jobDir);
+                await fse.chmod(job.jobDir, 0o777);
+                
+                // Chỉ kéo từ MinIO nếu có projectId hợp lệ
+                if (job.spec.projectId && job.spec.projectId !== 'null') {
+                    await pullWorkspaceFromMinio(job.jobDir, job.spec.ownerId, job.spec.projectId).catch(err => {
+                        console.warn(`[WorkerNode] Failed to pull workspace: ${err.message}`);
+                    });
                 }
 
-                let spec;
-                try {
-                    spec = JSON.parse(Buffer.from(bodyBuf || '').toString('utf8'));
-                } catch (err) {
-                    if (sock.writable) {
-                        sock.write(buildFrame(TYPE.ERROR, rid, 'Bad RUN payload JSON'));
-                    }
-                    pendingRequests.delete(rid);
-                    return;
+                const entry = String(job.spec.entryPoint || 'main.cpp').trim();
+                
+                // Luôn ghi đè code hiện tại từ trình duyệt xuống đĩa (hỗ trợ chạy 1 file lẻ không cần project)
+                if (job.spec.code) {
+                    const entryAbs = _safeJoin(job.jobDir, entry);
+                    if (entryAbs) await fse.outputFile(entryAbs, job.spec.code);
                 }
 
-                const ownerId = spec?.ownerId;
-                const projectId = spec?.projectId;
-                const language = String(spec?.language || '').toLowerCase();
-                const entryPoint = spec?.entryPoint;
+                console.log(`[WorkerNode] Dispatched job ${job.rid} to container ${container.id}`);
+                const dockerContainer = poolManager.docker.getContainer(container.id);
 
-                if (ownerId === undefined || projectId === undefined || !language || !entryPoint) {
-                    if (sock.writable) {
-                        sock.write(buildFrame(TYPE.ERROR, rid, 'Missing fields. Received: ' + JSON.stringify(spec)));
-                    }
-                    pendingRequests.delete(rid);
-                    return;
+                let cmd = '';
+                if (job.spec.language === 'cpp' || job.spec.language === 'c++') {
+                    cmd = `g++ ${_quoteSh(entry)} -o main && ./main`;
+                } else if (job.spec.language === 'python' || job.spec.language === 'py') {
+                    cmd = `python3 ${_quoteSh(entry)}`;
+                } else {
+                    throw new Error(`unsupported language: ${job.spec.language}`);
                 }
 
-                let safeRid;
-                try {
-                    safeRid = _assertSafeRequestId(rid);
-                } catch (err) {
-                    if (sock.writable) {
-                        sock.write(buildFrame(TYPE.ERROR, rid, err.message || 'invalid requestId'));
-                    }
-                    pendingRequests.delete(rid);
-                    return;
-                }
+                console.log(`[WorkerNode] Running command: ${cmd} in /workspace/${safeRid}`);
+                const exec = await dockerContainer.exec({
+                    Cmd: ['sh', '-lc', cmd],
+                    AttachStdout: true,
+                    AttachStderr: true,
+                    AttachStdin: true,
+                    Tty: false,
+                    User: 'sandbox_user',
+                    WorkingDir: `/workspace/${safeRid}`
+                });
 
-                const jobDir = path.join('/tmp', 'cbcode_jobs', safeRid);
+                console.log(`[WorkerNode] exec created`);
+                const stream = await exec.start({ hijack: true, stdin: true });
+                console.log(`[WorkerNode] exec started`);
+                activeProcesses.set(job.rid, stream);
 
-                try {
-                    await fse.ensureDir(jobDir);
+                // Dockerode stream multiplexing
+                dockerContainer.modem.demuxStream(stream, 
+                    { write: (chunk) => { if (sock.writable) sock.write(buildFrame(TYPE.RESULT, job.rid, chunk)); } }, // stdout
+                    { write: (chunk) => { if (sock.writable) sock.write(buildFrame(TYPE.RESULT, job.rid, chunk)); } }  // stderr
+                );
 
-                    await pullWorkspaceFromMinio(jobDir, ownerId, projectId);
+                let timedOut = false;
+                const timer = setTimeout(() => {
+                    timedOut = true;
+                    if (stream.destroy) stream.destroy();
+                }, EXEC_TIMEOUT_MS);
 
-                    let result;
-                    if (language === 'cpp' || language === 'c++') {
-                        result = await runCppJob({
-                            jobDir,
-                            entryPoint,
-                            timeoutMs: EXEC_TIMEOUT_MS,
-                            childProcessRef: (child) => activeProcesses.set(rid, child),
-                            onStdout: (chunk) => {
-                                if (sock.writable) sock.write(buildFrame(TYPE.RESULT, rid, chunk));
-                            },
-                            onStderr: (chunk) => {
-                                if (sock.writable) sock.write(buildFrame(TYPE.RESULT, rid, chunk));
-                            },
-                        });
-                    } else if (language === 'python' || language === 'py') {
-                        result = await runPythonJob({
-                            jobDir,
-                            entryPoint,
-                            timeoutMs: EXEC_TIMEOUT_MS,
-                            childProcessRef: (child) => activeProcesses.set(rid, child),
-                            onStdout: (chunk) => {
-                                if (sock.writable) sock.write(buildFrame(TYPE.RESULT, rid, chunk));
-                            },
-                            onStderr: (chunk) => {
-                                if (sock.writable) sock.write(buildFrame(TYPE.RESULT, rid, chunk));
-                            },
-                        });
-                    } else {
-                        throw new Error(`unsupported language: ${language}`);
-                    }
-                    
-                    activeProcesses.delete(rid);
-
-                    if (result.timedOut) {
-                        if (sock.writable) {
-                            sock.write(buildFrame(TYPE.ERROR, rid, `Timeout after ${EXEC_TIMEOUT_MS}ms`));
+                await new Promise((resolve) => {
+                    let isResolved = false;
+                    const done = () => {
+                        if (!isResolved) {
+                            isResolved = true;
+                            resolve();
                         }
-                        return;
-                    }
+                    };
 
-                    const exitCode = Number.isFinite(result.code) ? result.code : 1;
-                    if (sock.writable) {
-                        sock.write(
-                            buildFrame(
-                                TYPE.RESULT,
-                                rid,
-                                Buffer.from(`\n[Process Exited: ${exitCode}]`),
-                            ),
-                        );
-                    }
-                } catch (err) {
-                    if (sock.writable) {
-                        sock.write(buildFrame(TYPE.ERROR, rid, `Execution failed: ${err.message}`));
-                    }
-                } finally {
-                    activeProcesses.delete(rid);
-                    pendingRequests.delete(rid);
-                    await fse.remove(jobDir).catch(() => {});
+                    stream.on('end', done);
+                    stream.on('close', done);
+                    stream.on('error', done);
+
+                    // Docker stream can be delayed closing if stdin is attached, poll inspect to exit instantly
+                    const checkInterval = setInterval(async () => {
+                        try {
+                            const inspect = await exec.inspect();
+                            if (!inspect.Running) {
+                                clearInterval(checkInterval);
+                                done();
+                            }
+                        } catch(e) {}
+                    }, 100);
+
+                    // Ensure interval is cleared if resolved by event
+                    stream.on('end', () => clearInterval(checkInterval));
+                    stream.on('close', () => clearInterval(checkInterval));
+                });
+                clearTimeout(timer);
+
+                const inspect = await exec.inspect();
+                const exitCode = inspect.ExitCode;
+
+                if (timedOut) {
+                    if (sock.writable) sock.write(buildFrame(TYPE.ERROR, job.rid, `Timeout after ${EXEC_TIMEOUT_MS}ms`));
+                } else {
+                    if (sock.writable) sock.write(buildFrame(TYPE.RESULT, job.rid, Buffer.from(`\n[Process Exited: ${exitCode}]`)));
                 }
-            },
+            } catch (err) {
+                if (sock.writable) sock.write(buildFrame(TYPE.ERROR, job.rid, `Execution failed: ${err.message}`));
+            } finally {
+                activeProcesses.delete(job.rid);
+                pendingRequests.delete(job.rid);
+                await fse.remove(job.jobDir).catch(() => {});
+            }
+        }).then(result => {
+            if (result && result.queued) {
+                const sock = pendingRequests.get(rid);
+                if (sock?.writable) sock.write(buildFrame(TYPE.RESULT, rid, Buffer.from("\n[System] All containers busy. Job queued...")));
+            }
+        }).catch(err => {
+            const sock = pendingRequests.get(rid);
+            if (sock?.writable) sock.write(buildFrame(TYPE.ERROR, rid, `Dispatch failed: ${err.message}`));
+            pendingRequests.delete(rid);
         });
     }
 
@@ -502,16 +408,12 @@ async function main() {
                 if (type === TYPE.RUN) {
                     handleExec(socket, parsed.requestId, parsed.body);
                 } else if (type === TYPE.INPUT) {
-                    const child = activeProcesses.get(parsed.requestId);
-                    if (child && child.stdin) {
+                    const stream = activeProcesses.get(parsed.requestId);
+                    if (stream) {
                         if (parsed.body.length === 1 && parsed.body[0] === 0x03) {
-                            try {
-                                process.kill(-child.pid, 'SIGINT');
-                            } catch(e) {
-                                try { child.kill('SIGINT'); } catch(ex) {}
-                            }
+                            if (stream.destroy) stream.destroy();
                         } else {
-                            child.stdin.write(parsed.body);
+                            if (stream.write) stream.write(parsed.body);
                         }
                     }
                 }
@@ -551,7 +453,7 @@ async function main() {
 
         heartbeat.stop();
         server.close();
-        // Nothing else to shutdown besides heartbeat + server.
+        await poolManager.shutdown({ destroyPoolOnShutdown: true });
 
         console.log('[WorkerNode] Goodbye.');
         process.exit(0);

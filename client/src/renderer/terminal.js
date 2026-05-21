@@ -88,7 +88,7 @@ export function initTerminal() {
 
       activeTerm.term.write(formatOutput(data));
       
-      if (data.includes('[Process Exited:')) {
+      if (typeof data === 'string' && (data.includes('[Process Exited:') || data.includes('[❌ Error'))) {
         activeTerm.term.write('\r\n\x1b[1;32mExecution finished. Press Enter to continue...\x1b[0m\r\n');
         isGatewayExecution = true;
       }
@@ -285,6 +285,7 @@ export function unlockTerminal() {
   isGatewayExecution = false;
   const activeTerm = terminals.get(activeTerminalId);
   if (activeTerm) {
+    activeTerm.term.write('\r\n\x1b[90mRestoring local terminal...\x1b[0m\r\n');
     if (window.electronAPI) {
       // Gửi Ctrl+C (0x03) kết hợp Enter (0x0D) để buộc bash in lại prompt ngay lập tức
       // tránh bị dính input thừa nếu người dùng lỡ gõ bậy lúc locked
