@@ -1,6 +1,6 @@
 -- =====================================================================
 -- CBCode IDE — PostgreSQL Schema (Production)
--- Supports: OCC (Optimistic Concurrency Control), Project-based storage
+-- Supports: OCC (Optimistic Concurrency Control), Project-based storage, Collaboration
 -- =====================================================================
 
 -- Bảng chứa thông tin User
@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
     username VARCHAR(50) UNIQUE NOT NULL,
     password_hash VARCHAR(255) NOT NULL,
+    room_id VARCHAR(16) UNIQUE DEFAULT lpad(floor(random() * 1e16)::bigint::text, 16, '0'),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -38,6 +39,7 @@ CREATE TABLE IF NOT EXISTS files (
 CREATE INDEX IF NOT EXISTS idx_files_project_id ON files(project_id);
 
 -- Tạo user test (Password hash của '123456')
+-- Note: Thuộc tính room_id sẽ tự động được gán 16 chữ số ngẫu nhiên nhờ hàm DEFAULT ở trên
 INSERT INTO users (username, password_hash)
 VALUES ('admin_test', '$2b$10$l5peXUlzDmwCJgtLVBgWDu.YvrYbbzlkJ7782wA4BQ0QoFq3w/yMK')
 ON CONFLICT (username) DO NOTHING;
