@@ -14,7 +14,32 @@ class SyncManager {
   constructor() {
     this.dmp = new DiffMatchPatch();
     this.baseStates = new Map();     // Key: filepath, Value: string content
-    this.fileVersions = new Map();   // Key: filepath, Value: integer version (from server)
+    this.fileVersions = new Map();   // Key: filepath, Value: integer version
+    this.fileHashes = new Map();     // Key: filepath, Value: string hash
+  }
+
+  async loadLocalState(workspaceRoot) {
+    if (!workspaceRoot) return {};
+    try {
+      const data = await fs.readFile(path.join(workspaceRoot, ".zera", "sync-state.json"), "utf-8");
+      return JSON.parse(data);
+    } catch (e) { return {}; }
+  }
+
+  async saveLocalState(workspaceRoot) {
+    if (!workspaceRoot) return;
+    try {
+      const stateObj = {};
+      for (const [filepath, version] of this.fileVersions.entries()) {
+        const rel = this.getRelativePath(filepath, workspaceRoot);
+        stateObj[rel] = { version, hash: this.fileHashes.get(filepath) || "" };
+      }
+      const zeraDir = path.join(workspaceRoot, ".zera");
+      await fs.mkdir(zeraDir, { recursive: true });
+      await fs.writeFile(path.join(zeraDir, "sync-state.json"), JSON.stringify(stateObj, null, 2));
+    } catch (e) {
+      console.warn("[SyncService] Failed to save local sync state:", e);
+    }
   }
 
   updateBase(filepath, content) {
@@ -25,8 +50,9 @@ class SyncManager {
     return this.fileVersions.get(filepath) || 0;
   }
 
-  setVersion(filepath, version) {
+  setVersion(filepath, version, hash = "") {
     this.fileVersions.set(filepath, version);
+    if (hash) this.fileHashes.set(filepath, hash);
   }
 
   /**
@@ -98,6 +124,46 @@ class SyncManager {
     };
   }
 
+  // ── API: Delete file from cloud ──
+  async deleteCloudFile(filePath, token, projectId, workspaceRoot) {
+    const relPath = this.getRelativePath(filePath, workspaceRoot);
+    const url = `${API_BASE}/project/file?project_id=${projectId}&path=${encodeURIComponent(relPath)}`;
+    try {
+      const response = await fetch(url, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (response.ok) {
+        console.log(`[SyncService] Deleted ${relPath} from server.`);
+        this.fileVersions.delete(filePath);
+        this.fileHashes.delete(filePath);
+        await this.saveLocalState(workspaceRoot);
+      } else {
+        console.warn(`[SyncService] Failed to delete ${relPath} from server: ${response.status}`);
+      }
+    } catch (err) {
+      console.error(`[SyncService] Delete cloud error:`, err);
+    }
+  }
+
+  // ── Action: Pull and save locally ──
+  async pullAndSaveLocal(filePath, token, projectId, workspaceRoot) {
+    try {
+      const relPath = this.getRelativePath(filePath, workspaceRoot);
+      const cloudData = await this.pullFromCloud(relPath, token, projectId);
+      if (cloudData.exists) {
+        await fs.mkdir(path.dirname(filePath), { recursive: true });
+        await fs.writeFile(filePath, cloudData.content);
+        this.setVersion(filePath, cloudData.version, cloudData.hash);
+        this.updateBase(filePath, cloudData.content);
+        await this.saveLocalState(workspaceRoot);
+        console.log(`[SyncService] Pulled new file ${relPath} from server.`);
+      }
+    } catch (err) {
+      console.error(`[SyncService] Pull and save error:`, err);
+    }
+  }
+
   // ── Helper: Recursively get all files ignoring node_modules and .git ──
   async getAllFilesRecursive(dirPath) {
     const files = [];
@@ -158,8 +224,30 @@ class SyncManager {
       if (workspaceRoot) {
         console.log("[SyncService] Auto-scanning local files for offline changes...");
         const localPaths = await this.getAllFilesRecursive(workspaceRoot);
+        const localState = await this.loadLocalState(workspaceRoot);
         let changesDetected = 0;
 
+        const localPathsSet = new Set(localPaths);
+
+        // 1. Check for missing local files (offline delete vs new server file)
+        for (const [serverPath, serverFile] of serverFilesMap.entries()) {
+          if (!localPathsSet.has(serverPath)) {
+            const relPath = this.getRelativePath(serverPath, workspaceRoot);
+            if (localState[relPath]) {
+              // We used to have it synced -> user deleted it offline!
+              console.log(`[SyncService] Detected offline deletion for ${serverPath}, deleting from server...`);
+              this.deleteCloudFile(serverPath, token, projectId, workspaceRoot).catch(console.error);
+              changesDetected++;
+            } else {
+              // We never had it -> someone else created it on server!
+              console.log(`[SyncService] Detected new server file ${serverPath}, pulling...`);
+              this.pullAndSaveLocal(serverPath, token, projectId, workspaceRoot).catch(console.error);
+              changesDetected++;
+            }
+          }
+        }
+
+        // 2. Check for local modifications & new local files
         for (const localPath of localPaths) {
           try {
             const content = await fs.readFile(localPath, "utf-8");
@@ -169,11 +257,15 @@ class SyncManager {
             if (!serverFile || serverFile.hash !== localHash) {
               console.log(`[SyncService] Detected local drift on ${localPath}, pushing...`);
               changesDetected++;
-              // Call autoSync without awaiting so we don't block the startup too long
               this.autoSync(localPath, token, projectId, workspaceRoot).catch(console.error);
+            } else {
+               this.setVersion(localPath, serverFile.version, serverFile.hash);
             }
           } catch(e) {}
         }
+        
+        await this.saveLocalState(workspaceRoot);
+
         if (changesDetected === 0) {
            console.log("[SyncService] Local workspace is perfectly in sync with server.");
         }
@@ -251,8 +343,9 @@ class SyncManager {
 
       // ── SUCCESS: Update local version tracking ──
       if (!result.skipped) {
-        this.setVersion(filepath, result.new_version);
+        this.setVersion(filepath, result.new_version, result.hash);
         this.updateBase(filepath, localContent);
+        await this.saveLocalState(workspaceRoot);
         console.log(`[SyncService] Synced ${relPath} → v${result.new_version}`);
       } else {
         console.log(`[SyncService] ${relPath} unchanged, skipped.`);

@@ -12,6 +12,7 @@ const TYPE = {
   RESULT: 0x06,
   INPUT: 0x07,
   LINT: 0x08,
+  FS_EVENT: 0x09,
   PING: 0xff,
 };
 

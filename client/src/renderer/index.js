@@ -9,7 +9,7 @@ import "./toast.js";
 
 import { state, LS } from "./state.js";
 import { initRootPane } from "./pane.js";
-import { openOrActivateTab, openViewerTab, buildTabEl } from "./tab.js";
+import { openOrActivateTab, openViewerTab, buildTabEl, getTabByPath, closeTab } from "./tab.js";
 import { getFocusedPane } from "./pane.js";
 import { updateBreadcrumb } from "./breadcrumb.js";
 import { doSave } from "./menubar.js";
@@ -144,6 +144,33 @@ if (window.electronAPI.onLintResult) {
       const model = pane.editor.getModel();
       if (model && Array.isArray(markers)) {
         monaco.editor.setModelMarkers(model, "remote-linter", markers);
+      }
+    }
+  });
+
+  window.electronAPI.onFsEvent((event) => {
+    if (event.action === "delete") {
+      // 1. Refresh Sidebar nếu thư mục root đang mở
+      if (state.rootFolderPath) {
+        window.electronAPI.requestOpenFolder(state.rootFolderPath);
+      }
+      
+      // 2. Tìm tab của file đã bị xóa và đóng lại
+      // Lấy đường dẫn tuyệt đối (hoặc tương đối) từ event để khớp với tab.filePath
+      const deletedPathFragment = event.filepath; // e.g. "test.cpp"
+      // Vì tab.filePath có thể là tuyệt đối (e.g. /mnt/HDDdrive/.../test.cpp)
+      // Ta duyệt qua tất cả các tab
+      for (const tab of state.tabs.values()) {
+        if (tab.filePath && (tab.filePath === deletedPathFragment || tab.filePath.endsWith("/" + deletedPathFragment) || tab.filePath.endsWith("\\" + deletedPathFragment))) {
+          // Bỏ cờ isModified để tránh hiện popup confirm "chưa lưu"
+          tab.isModified = false;
+          closeTab(tab.id);
+        }
+      }
+    } else if (event.action === "update") {
+      // Refresh sidebar cho trường hợp có file mới
+      if (state.rootFolderPath) {
+        window.electronAPI.requestOpenFolder(state.rootFolderPath);
       }
     }
   });

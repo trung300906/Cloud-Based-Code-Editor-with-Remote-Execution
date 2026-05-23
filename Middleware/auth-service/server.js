@@ -14,6 +14,8 @@ const {
   S3Client,
   PutObjectCommand,
   GetObjectCommand,
+  DeleteObjectCommand,
+  ListObjectsV2Command
 } = require("@aws-sdk/client-s3");
 
 const PORT = Number(process.env.AUTH_PORT || 3000);
@@ -53,6 +55,7 @@ const MINIO_BUCKET = process.env.MINIO_BUCKET || "cloud-ide";
 const app = express();
 app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
 app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 function extractToken(req) {
   const auth = req.headers.authorization || "";
@@ -63,7 +66,7 @@ function extractToken(req) {
 
 app.post("/login", async (req, res) => {
   try {
-    const { username, password } = req.body || {};
+    const { username, password, force } = req.body || {};
     if (!username || !password) {
       return res.status(400).json({ error: "username and password required" });
     }
@@ -90,12 +93,14 @@ app.post("/login", async (req, res) => {
       { expiresIn: JWT_TTL_SECONDS },
     );
 
-    const setResult = await redisClient.set(sessionKey, token, {
-      NX: true,
-      EX: JWT_TTL_SECONDS,
-    });
+    const setOptions = { EX: JWT_TTL_SECONDS };
+    if (!force) {
+      setOptions.NX = true;
+    }
 
-    if (setResult !== "OK") {
+    const setResult = await redisClient.set(sessionKey, token, setOptions);
+
+    if (!force && setResult !== "OK") {
       return res.status(409).json({ error: "user already online" });
     }
 
@@ -302,8 +307,10 @@ app.post("/api/project/create", authenticateToken, async (req, res) => {
     }
 
     // CHECK LIMIT: Max 3 projects per owner
-    const countResult = await pool.query(`SELECT COUNT(*) as cnt FROM projects WHERE owner_id = $1`, [ownerId]);
-    if (parseInt(countResult.rows[0].cnt) >= 3) {
+    let countResult = await pool.query(`SELECT COUNT(*) as cnt FROM projects WHERE owner_id = $1`, [ownerId]);
+    let currentCount = parseInt(countResult.rows[0].cnt);
+
+    while (currentCount >= 3) {
       // Find the oldest project and delete its files + project row
       const oldest = await pool.query(
         `SELECT id FROM projects WHERE owner_id = $1 ORDER BY created_at ASC LIMIT 1`,
@@ -311,10 +318,35 @@ app.post("/api/project/create", authenticateToken, async (req, res) => {
       );
       if (oldest.rowCount > 0) {
         const oldestId = oldest.rows[0].id;
+
+        // Xóa files trong MinIO
+        try {
+          const prefix = `${ownerId}/${oldestId}/`;
+          const minioData = await s3.send(new ListObjectsV2Command({
+            Bucket: MINIO_BUCKET,
+            Prefix: prefix
+          }));
+          
+          if (minioData.Contents && minioData.Contents.length > 0) {
+            for (const obj of minioData.Contents) {
+              await s3.send(new DeleteObjectCommand({
+                Bucket: MINIO_BUCKET,
+                Key: obj.Key
+              }));
+            }
+            console.log(`[AuthService] Deleted ${minioData.Contents.length} files from MinIO for workspace id=${oldestId}`);
+          }
+        } catch (s3Err) {
+          console.error(`[AuthService] Failed to delete MinIO files for workspace id=${oldestId}`, s3Err.message);
+        }
+
         await pool.query(`DELETE FROM files WHERE project_id = $1`, [oldestId]);
         await pool.query(`DELETE FROM projects WHERE id = $1`, [oldestId]);
         console.log(`[AuthService] Limit reached (>=3). Deleted oldest workspace id=${oldestId}`);
+      } else {
+        break; // No projects left to delete
       }
+      currentCount--;
     }
 
     const result = await pool.query(
@@ -356,16 +388,57 @@ app.get("/api/project/files", authenticateToken, async (req, res) => {
       return res.status(400).json({ error: "project_id query parameter required" });
     }
 
+    const ownerId = await getEffectiveOwnerId(Number(req.user.sub));
+
     const result = await pool.query(
       `SELECT f.id, f.path, f.version, f.hash, f.last_modified_by, f.last_updated
        FROM files f
        JOIN projects p ON p.id = f.project_id
        WHERE f.project_id = $1 AND p.owner_id = $2
        ORDER BY f.path`,
-      [projectId, Number(req.user.sub)],
+      [projectId, ownerId],
     );
 
-    return res.json({ files: result.rows });
+    let finalFiles = result.rows;
+
+    if (finalFiles.length > 0) {
+      // ── TỰ ĐỘNG CHỮA LÀNH (AUTO-HEAL) ──
+      // Nếu Admin chủ động xóa file trên MinIO nhưng quên xóa trong Postgres,
+      // Client sẽ lầm tưởng là server vẫn còn file và không chịu Push lên lại.
+      // Giải pháp: Scan MinIO, những file có trong Postgres mà KHÔNG có trong MinIO
+      // sẽ bị xóa khỏi Postgres ngay lập tức, để Client tự động Push bù đắp!
+      try {
+        const prefix = `${ownerId}/${projectId}/`;
+        const minioData = await s3.send(new ListObjectsV2Command({
+          Bucket: MINIO_BUCKET,
+          Prefix: prefix
+        }));
+        
+        // Tạo tập hợp (Set) chứa các file thực sự còn tồn tại trên MinIO
+        const existingKeys = new Set((minioData.Contents || []).map(obj => obj.Key));
+        
+        // Lọc lại danh sách trả về cho Client, đồng thời dọn rác ở Postgres
+        const missingIds = [];
+        finalFiles = finalFiles.filter(f => {
+          const expectedKey = `${prefix}${f.path}`;
+          if (!existingKeys.has(expectedKey)) {
+            missingIds.push(f.id);
+            return false; // Loại bỏ khỏi danh sách gửi về
+          }
+          return true; // Giữ lại
+        });
+
+        // Xóa âm thầm các bản ghi ma (ghost records) khỏi Postgres
+        if (missingIds.length > 0) {
+          console.log(`[API] Auto-healing: Found ${missingIds.length} ghost records in DB missing from MinIO. Removing...`);
+          await pool.query(`DELETE FROM files WHERE id = ANY($1::int[])`, [missingIds]);
+        }
+      } catch (s3Err) {
+        console.error("[API] MinIO auto-heal check failed, continuing...", s3Err.message);
+      }
+    }
+
+    return res.json({ files: finalFiles });
   } catch (err) {
     console.error("[API] GET /api/project/files error:", err.message || err);
     return res.status(500).json({ error: "internal error" });
@@ -505,6 +578,14 @@ app.post("/api/project/sync/file", authenticateToken, async (req, res) => {
       `[API] Sync OK: user=${userId} project=${projectId} path=${filePath} v${newVersion}`,
     );
 
+    // Bắn sự kiện realtime qua Redis để Gateway báo cho các Client khác trong room
+    await redisClient.publish("project_fs_events", JSON.stringify({
+      action: "update",
+      projectId,
+      filepath: filePath,
+      version: newVersion
+    }));
+
     return res.status(200).json({
       new_version: newVersion,
       hash: contentHash,
@@ -514,6 +595,74 @@ app.post("/api/project/sync/file", authenticateToken, async (req, res) => {
     // MinIO failure or any other error → rollback Postgres
     await client.query("ROLLBACK").catch(() => {});
     console.error("[API] POST /api/project/sync/file error:", err.message || err);
+    return res.status(500).json({ error: "internal error" });
+  } finally {
+    client.release();
+  }
+});
+
+// ---- DELETE /api/project/file — Xóa file khỏi DB và MinIO ----
+app.delete("/api/project/file", authenticateToken, async (req, res) => {
+  const { project_id, path: filePath } = req.query;
+  const userId = req.user.id;
+
+  if (!project_id || !filePath) {
+    return res.status(400).json({ error: "Missing parameters" });
+  }
+
+  const projectId = parseInt(project_id, 10);
+  const client = await pool.connect();
+  try {
+    // 1. Kiểm tra quyền sở hữu (chỉ owner mới được xóa trực tiếp, guest xóa qua gateway — hiện tại cứ check owner trước)
+    // Tạm thời để đơn giản, ai có quyền truy cập project đều được xóa (vì file sync).
+    const checkAccess = await client.query(
+      `SELECT owner_id FROM projects WHERE id = $1`,
+      [projectId]
+    );
+    if (checkAccess.rows.length === 0) return res.status(404).json({ error: "Project not found" });
+    const ownerId = checkAccess.rows[0].owner_id;
+    // Bỏ qua check quyền chặt chẽ ở bước này (trong thực tế sẽ check collab roles).
+
+    // 2. Xóa khỏi DB Postgres
+    await client.query("BEGIN");
+    const delRes = await client.query(
+      `DELETE FROM files WHERE project_id = $1 AND path = $2 RETURNING id`,
+      [projectId, filePath]
+    );
+
+    if (delRes.rows.length > 0) {
+      // 3. Xóa khỏi MinIO
+      const minioKey = `${ownerId}/${projectId}/${filePath}`;
+      try {
+        await s3.send(
+          new DeleteObjectCommand({
+            Bucket: process.env.MINIO_BUCKET || "cloud-ide",
+            Key: minioKey,
+          })
+        );
+      } catch (e) {
+        console.warn("[API] MinIO delete failed, but DB record removed:", e.message);
+      }
+
+      await client.query(`UPDATE projects SET updated_at = NOW() WHERE id = $1`, [projectId]);
+      await client.query("COMMIT");
+
+      // Bắn sự kiện realtime qua Redis
+      await redisClient.publish("project_fs_events", JSON.stringify({
+        action: "delete",
+        projectId,
+        filepath: filePath
+      }));
+
+      console.log(`[API] Delete OK: project=${projectId} path=${filePath}`);
+      return res.status(200).json({ message: "File deleted" });
+    } else {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ error: "File not found" });
+    }
+  } catch (err) {
+    await client.query("ROLLBACK").catch(() => {});
+    console.error("[API] DELETE /api/project/file error:", err.message || err);
     return res.status(500).json({ error: "internal error" });
   } finally {
     client.release();

@@ -3,6 +3,7 @@
 // IPC handlers được tách vào src/main/ipc-*.js
  
 const { app, BrowserWindow, Menu, ipcMain, safeStorage } = require("electron");
+const { buildTree } = require("./src/main/file-utils.js");
 const path = require("node:path");
 const fs = require("node:fs");
 const os = require("node:os");
@@ -21,6 +22,8 @@ let tcpBootstrapped = false;
 let currentToken = null;
 let currentProjectId = null;   // Active project ID (set after folder open + project create)
 let currentWorkspaceRoot = null; // Absolute path to the workspace root folder
+let originalProjectId = null;    // Lưu lại project ID gốc trước khi join room
+let originalWorkspaceRoot = null; // Lưu lại thư mục gốc trước khi join room
 let currentRunId = null;       // Active code execution request ID
 
 function getToken() {
@@ -160,6 +163,10 @@ app.whenReady().then(() => {
       if (!currentToken || !data.projectId) {
         return { success: false, error: "Not logged in or missing project ID" };
       }
+      if (!currentWorkspaceRoot || !currentWorkspaceRoot.includes("cbcode_guest_")) {
+        originalProjectId = currentProjectId;
+        originalWorkspaceRoot = currentWorkspaceRoot;
+      }
       currentProjectId = data.projectId;
       
       // Create a local temporary workspace for the guest
@@ -200,9 +207,10 @@ app.whenReady().then(() => {
       await syncManager.syncVersionsFromServer(currentToken, currentProjectId, currentWorkspaceRoot);
       
       // Tell renderer to open this folder
+      const treeData = buildTree(currentWorkspaceRoot);
       mainWindow.webContents.send("folder-opened", {
-        path: currentWorkspaceRoot,
-        name: path.basename(currentWorkspaceRoot)
+        items: treeData,
+        folderPath: currentWorkspaceRoot
       });
     } catch(err) {
       console.error("[Main] clone_guest error:", err);
@@ -211,14 +219,38 @@ app.whenReady().then(() => {
 
   ipcMain.on("room:leave", () => {
     try {
-      if (currentWorkspaceRoot && currentWorkspaceRoot.includes("cbcode_guest_")) {
-        console.log(`[Main] Leaving room, clearing guest folder: ${currentWorkspaceRoot}`);
-        fs.rmSync(currentWorkspaceRoot, { recursive: true, force: true });
+      const guestFolderToClean = (currentWorkspaceRoot && currentWorkspaceRoot.includes("cbcode_guest_")) 
+        ? currentWorkspaceRoot 
+        : null;
+
+      // Restore state FIRST
+      currentProjectId = originalProjectId;
+      currentWorkspaceRoot = originalWorkspaceRoot;
+      
+      // Tell UI to restore original sidebar so files are closed
+      if (currentWorkspaceRoot && fs.existsSync(currentWorkspaceRoot)) {
+        const treeData = buildTree(currentWorkspaceRoot);
+        mainWindow.webContents.send("folder-opened", {
+          items: treeData,
+          folderPath: currentWorkspaceRoot
+        });
+      } else {
+        mainWindow.webContents.send("folder-opened", { items: [], folderPath: null });
       }
-      currentProjectId = null;
-      currentWorkspaceRoot = null;
-      // Tell UI to clear sidebar
-      mainWindow.webContents.send("folder-opened", { path: null, name: "" });
+
+      // Cleanup guest folder safely after UI changes
+      if (guestFolderToClean) {
+        console.log(`[Main] Leaving room, clearing guest folder: ${guestFolderToClean}`);
+        setTimeout(() => {
+          try {
+            fs.rmSync(guestFolderToClean, { recursive: true, force: true, maxRetries: 3 });
+          } catch (e) {
+            console.warn(`[Main] Could not delete guest folder immediately:`, e);
+            // Fallback async delete
+            fs.promises.rm(guestFolderToClean, { recursive: true, force: true }).catch(() => {});
+          }
+        }, 1000); // give UI time to close file handles
+      }
     } catch (err) {
       console.error("[Main] room:leave error:", err);
     }
@@ -242,6 +274,46 @@ app.whenReady().then(() => {
   tcpClient.setLintCallback((data) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send("lint-result", data);
+    }
+  });
+
+  tcpClient.setFsEventCallback(async (data) => {
+    try {
+      const event = JSON.parse(data);
+      if (currentProjectId && String(event.projectId) === String(currentProjectId)) {
+        const absolutePath = path.join(currentWorkspaceRoot, event.filepath);
+        if (event.action === "update") {
+          console.log(`[Main] Received FS_EVENT update for ${event.filepath}, pulling...`);
+          await syncManager.pullAndSaveLocal(absolutePath, currentToken, currentProjectId, currentWorkspaceRoot);
+        } else if (event.action === "delete") {
+          console.log(`[Main] Received FS_EVENT delete for ${event.filepath}, removing locally...`);
+          if (fs.existsSync(absolutePath)) {
+             fs.rmSync(absolutePath, { force: true });
+          }
+          syncManager.fileVersions.delete(absolutePath);
+          syncManager.fileHashes.delete(absolutePath);
+          await syncManager.saveLocalState(currentWorkspaceRoot);
+        }
+        // Forward to UI to update file tree
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("fs-event", event);
+        }
+      }
+    } catch (err) {
+      console.error("[Main] FS_EVENT handle error:", err);
+    }
+  });
+
+  ipcMain.on("request-delete-file", async (_event, filePath) => {
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.rmSync(filePath, { force: true });
+      }
+      if (currentProjectId) {
+        await syncManager.deleteCloudFile(filePath, currentToken, currentProjectId, currentWorkspaceRoot);
+      }
+    } catch (e) {
+      console.error("[Main] Delete file error:", e);
     }
   });
 
@@ -290,6 +362,17 @@ app.whenReady().then(() => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
+});
+
+app.on("before-quit", () => {
+  try {
+    if (currentWorkspaceRoot && currentWorkspaceRoot.includes("cbcode_guest_")) {
+      console.log(`[Main] App quitting, clearing guest folder: ${currentWorkspaceRoot}`);
+      fs.rmSync(currentWorkspaceRoot, { recursive: true, force: true, maxRetries: 3 });
+    }
+  } catch (e) {
+    console.error("[Main] Error cleaning up guest folder on quit:", e);
+  }
 });
 
 // Export getters so ipc-file.js can access the current session state

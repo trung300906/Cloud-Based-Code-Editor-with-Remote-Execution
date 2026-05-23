@@ -63,6 +63,7 @@ const TYPE = {
   RESULT: 0x06,
   INPUT: 0x07,
   LINT: 0x08,
+  FS_EVENT: 0x09,
   PING: 0xff,
 };
 
@@ -180,6 +181,26 @@ class GatewayServer {
     try {
       await redisClient.connect();
       _log("info", "[Gateway] Redis connected");
+
+      // Subscribe to FS events
+      const subClient = redisClient.duplicate();
+      await subClient.connect();
+      await subClient.subscribe("project_fs_events", (message) => {
+        try {
+          const event = JSON.parse(message);
+          // Broadcast to all clients in the same project (roomId)
+          for (const [clientId, info] of this.activeClients.entries()) {
+            if (info.session && String(info.session.roomId) === String(event.projectId)) {
+              if (info.socket && !info.socket.destroyed) {
+                info.socket.write(buildFrame(TYPE.FS_EVENT, "gateway", message));
+              }
+            }
+          }
+        } catch (e) {
+          _log("warn", `[Gateway] FS Event error: ${e.message}`);
+        }
+      });
+      _log("info", "[Gateway] Subscribed to project_fs_events");
     } catch (err) {
       _log("error", `[Gateway] Redis connection failed: ${err.message || err}`);
     }
@@ -343,7 +364,9 @@ class GatewayServer {
 
   _handleConnection(clientSocket) {
     const clientId = `${clientSocket.remoteAddress}:${clientSocket.remotePort}`;
-    this.activeClients.set(clientId, { connectedAt: Date.now() });
+    const session = { authed: false, token: "", roomId: "", fileState: {} };
+    
+    this.activeClients.set(clientId, { socket: clientSocket, session, connectedAt: Date.now() });
     _log(
       "debug",
       `[Gateway] 🙋 Client kết nối: ${clientId} (clients=${this.activeClients.size})`,
@@ -352,7 +375,6 @@ class GatewayServer {
     // Mỗi IP có 1 rổ Token (Chứa tối đa 50 requests, hồi 10 req/s)
     const limiter = new RateLimiter(50, 10);
     let workerSocket = null; // Socket nối xuống Trạm cày (nếu gọi lệnh RUN)
-    const session = { authed: false, token: "", roomId: "", fileState: {} };
 
     // Throttle spam logs: tối đa 1 warn / 5s / client
     let lastSpamLogAt = 0;

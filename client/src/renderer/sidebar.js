@@ -54,16 +54,22 @@ export function onFolderOpened(data) {
   state.fileIndex = rebuildFileIndex(data.items, data.folderPath);
 
   // Đăng ký/lấy project trên server khi mở folder (dùng tên folder làm tên project)
-  const cleanPath = data.folderPath.replace(/[\\/]+$/, "");
-  const folderName = cleanPath.split(/[\\/]/).pop() || "Untitled Project";
-  if (window.electronAPI?.setProject) {
-    window.electronAPI.setProject(folderName, data.folderPath).then((result) => {
-      if (result.success) {
-        console.log(`[Sidebar] Project "${folderName}" → id=${result.projectId} (created=${result.created})`);
-      } else {
-        console.warn(`[Sidebar] Could not set project: ${result.error}`);
-      }
-    });
+  // Tuyệt đối BỎ QUA nếu đây là thư mục guest của room (vì project đã có sẵn của host)
+  const cleanPath = data.folderPath ? data.folderPath.replace(/[\\/]+$/, "") : "";
+  const folderName = cleanPath ? cleanPath.split(/[\\/]/).pop() : "Untitled Project";
+  
+  if (data.folderPath && !data.folderPath.includes("cbcode_guest_")) {
+    if (window.electronAPI?.setProject) {
+      window.electronAPI.setProject(folderName, data.folderPath).then((result) => {
+        if (result.success) {
+          console.log(`[Sidebar] Project "${folderName}" → id=${result.projectId} (created=${result.created})`);
+        } else {
+          console.warn(`[Sidebar] Could not set project: ${result.error}`);
+        }
+      });
+    }
+  } else if (data.folderPath && data.folderPath.includes("cbcode_guest_")) {
+    console.log(`[Sidebar] Skipped project registration for guest folder: ${folderName}`);
   }
 
   const fileList = document.getElementById("file-list");
@@ -188,7 +194,63 @@ function buildFileLabel(item) {
     }
   });
 
+  label.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    showContextMenu(e.clientX, e.clientY, item.path, "file");
+  });
+
   return label;
+}
+
+// ─── CONTEXT MENU ───
+let contextMenu = null;
+function showContextMenu(x, y, path, type) {
+  if (contextMenu) contextMenu.remove();
+  
+  contextMenu = document.createElement("div");
+  contextMenu.className = "sidebar-context-menu";
+  contextMenu.innerHTML = `
+    <div class="menu-item" id="ctx-delete">Delete</div>
+  `;
+  
+  contextMenu.style.position = "fixed";
+  contextMenu.style.left = `${x}px`;
+  contextMenu.style.top = `${y}px`;
+  document.body.appendChild(contextMenu);
+
+  document.getElementById("ctx-delete").addEventListener("click", () => {
+    if (confirm(`Are you sure you want to delete ${path}?`)) {
+      window.electronAPI.requestDeleteFile(path);
+      
+      // Xóa file khỏi giao diện ngay lập tức thay vì đợi fs-event
+      // 1. Đóng tab nếu đang mở
+      import('./tab.js').then(({ getTabByPath, closeTab }) => {
+        const tab = getTabByPath(path);
+        if (tab) {
+          tab.isModified = false;
+          closeTab(tab.id);
+        }
+      }).catch(console.error);
+
+      // 2. Xóa khỏi sidebar
+      // Dùng querySelectorAll để tìm đúng node (đề phòng ký tự đặc biệt)
+      const labels = document.querySelectorAll(".tree-file-label");
+      for (const label of labels) {
+        if (label.title === path) {
+          if (label.parentElement) label.parentElement.remove();
+          break;
+        }
+      }
+    }
+    contextMenu.remove();
+  });
+
+  const closeMenu = () => {
+    if (contextMenu) contextMenu.remove();
+    document.removeEventListener("click", closeMenu);
+  };
+  setTimeout(() => document.addEventListener("click", closeMenu), 0);
 }
 
  
