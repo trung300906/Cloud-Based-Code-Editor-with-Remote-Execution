@@ -152,6 +152,51 @@ export async function initCustomMenubar() {
     });
   }
 
+  // Lắng nghe yêu cầu cập nhật file từ server (Smart OCC check)
+  if (window.electronAPI && window.electronAPI.onRemoteFileUpdate) {
+    window.electronAPI.onRemoteFileUpdate(async (data) => {
+      const { filepath, relPath, projectId, workspaceRoot, token } = data;
+      let isModified = false;
+      let localContent = "";
+      
+      for (const tab of state.tabs.values()) {
+        if (tab.filePath === filepath) {
+          isModified = tab.isModified;
+          localContent = tab.model ? tab.model.getValue() : "";
+          break;
+        }
+      }
+
+      if (isModified) {
+         console.log(`[Renderer] Local file ${filepath} is dirty. Triggering conflict check...`);
+         window.electronAPI.triggerConflict({ filepath, relPath, localContent, projectId, token });
+      } else {
+         console.log(`[Renderer] Local file ${filepath} is clean. Safe to pull.`);
+         window.electronAPI.safePullAndReload({ filepath, projectId, token, workspaceRoot });
+      }
+    });
+  }
+
+  // Xử lý reload lại tab khi safe pull thành công
+  if (window.electronAPI && window.electronAPI.onReloadTabContent) {
+    window.electronAPI.onReloadTabContent(async (data) => {
+      try {
+        const { filepath, content } = data;
+        if (content === null || content === undefined) return;
+        
+        for (const tab of state.tabs.values()) {
+          if (tab.filePath === filepath && tab.model) {
+            tab.model.setValue(content);
+            tab.isModified = false;
+            // update UI modified dot
+            import("./tab.js").then(({ refreshTabEl }) => refreshTabEl(tab.id));
+            break;
+          }
+        }
+      } catch(e) {}
+    });
+  }
+
   const menuItems = menubar.querySelectorAll(".menu-item");
 
   function closeAllMenus() {

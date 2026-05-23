@@ -55,6 +55,12 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.invoke('sync:resolve', filepath, resolvedContent, cloudVersion),
   onFsEvent: (cb) => ipcRenderer.on('fs-event', (e, data) => cb(data)),
   requestDeleteFile: (filePath) => ipcRenderer.send('request-delete-file', filePath),
+  
+  // Smart Realtime Sync
+  onRemoteFileUpdate: (cb) => ipcRenderer.on("remote-file-update", (e, data) => cb(data)),
+  triggerConflict: (data) => ipcRenderer.invoke("sync:trigger-conflict", data),
+  safePullAndReload: (data) => ipcRenderer.invoke("sync:safe-pull-and-reload", data),
+  onReloadTabContent: (cb) => ipcRenderer.on("reload-tab-content", (e, data) => cb(data)),
 
   // Terminal & Run Code
   sendRunCode: (data) => ipcRenderer.send('run-code', data),

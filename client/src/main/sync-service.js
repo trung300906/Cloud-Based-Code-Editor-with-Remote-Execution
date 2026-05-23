@@ -104,6 +104,7 @@ class SyncManager {
     const response = await fetch(url, {
       method: "GET",
       headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
     });
 
     if (response.status === 404) {
@@ -164,6 +165,43 @@ class SyncManager {
     }
   }
 
+  // ── Handle Realtime FS_EVENT Update ──
+  async handleRemoteUpdate(filePath, token, projectId, workspaceRoot) {
+    try {
+      // 1. Check if local file is modified
+      let localContent = "";
+      try { localContent = await fs.readFile(filePath, "utf-8"); } catch(e) {}
+      
+      const localHash = crypto.createHash("md5").update(localContent, "utf8").digest("hex");
+      const baseHash = this.fileHashes.get(filePath);
+
+      if (!baseHash || localHash === baseHash) {
+         // Local is unchanged. Safe to pull.
+         console.log(`[SyncService] Local file unchanged. Safely pulling remote update for ${filePath}`);
+         await this.pullAndSaveLocal(filePath, token, projectId, workspaceRoot);
+      } else {
+         // Local IS MODIFIED! Do NOT overwrite! Trigger a conflict diff.
+         console.log(`[SyncService] Local file IS MODIFIED! Triggering Conflict for ${filePath}`);
+         const relPath = this.getRelativePath(filePath, workspaceRoot);
+         const cloudData = await this.pullFromCloud(relPath, token, projectId);
+
+         const windows = BrowserWindow.getAllWindows();
+         if (windows.length > 0) {
+           windows[0].webContents.send("sync:conflict", {
+             filepath: filePath,
+             relPath,
+             localContent,
+             cloudContent: cloudData.content,
+             cloudVersion: cloudData.version,
+             projectId,
+           });
+         }
+      }
+    } catch(err) {
+      console.error(`[SyncService] Handle remote update error:`, err);
+    }
+  }
+
   // ── Helper: Recursively get all files ignoring node_modules and .git ──
   async getAllFilesRecursive(dirPath) {
     const files = [];
@@ -198,6 +236,7 @@ class SyncManager {
       const response = await fetch(url, {
         method: "GET",
         headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
       });
 
       if (!response.ok) {
@@ -214,7 +253,6 @@ class SyncManager {
         const localPath = workspaceRoot
           ? path.join(workspaceRoot, ...file.path.split("/"))
           : file.path;
-        this.setVersion(localPath, file.version);
         serverFilesMap.set(localPath, file);
       }
 
@@ -254,11 +292,24 @@ class SyncManager {
             const localHash = crypto.createHash("md5").update(content, "utf8").digest("hex");
             
             const serverFile = serverFilesMap.get(localPath);
-            if (!serverFile || serverFile.hash !== localHash) {
-              console.log(`[SyncService] Detected local drift on ${localPath}, pushing...`);
+            const relPath = this.getRelativePath(localPath, workspaceRoot);
+            const baseFile = localState[relPath];
+
+            if (!serverFile) {
+              // Local is NEW
+              console.log(`[SyncService] Detected new local file ${localPath}, pushing...`);
               changesDetected++;
+              this.setVersion(localPath, 0); // trigger insert
+              this.autoSync(localPath, token, projectId, workspaceRoot).catch(console.error);
+            } else if (serverFile.hash !== localHash) {
+              console.log(`[SyncService] Detected drift on ${localPath} (guest edits or offline edits). Pushing to trigger Diff...`);
+              changesDetected++;
+              // Phục hồi version gốc trước khi push để chắc chắn server sẽ chặn lại bằng lỗi 409 Conflict
+              // Nhờ đó, Host sẽ luôn được popup màn hình Diff để review code của Guest
+              this.setVersion(localPath, baseFile ? baseFile.version : 0);
               this.autoSync(localPath, token, projectId, workspaceRoot).catch(console.error);
             } else {
+               // In sync
                this.setVersion(localPath, serverFile.version, serverFile.hash);
             }
           } catch(e) {}
@@ -342,13 +393,14 @@ class SyncManager {
       }
 
       // ── SUCCESS: Update local version tracking ──
+      this.setVersion(filepath, result.new_version, result.hash);
+      this.updateBase(filepath, localContent);
+      await this.saveLocalState(workspaceRoot);
+      
       if (!result.skipped) {
-        this.setVersion(filepath, result.new_version, result.hash);
-        this.updateBase(filepath, localContent);
-        await this.saveLocalState(workspaceRoot);
         console.log(`[SyncService] Synced ${relPath} → v${result.new_version}`);
       } else {
-        console.log(`[SyncService] ${relPath} unchanged, skipped.`);
+        console.log(`[SyncService] ${relPath} unchanged, skipped. Fast-forwarded to v${result.new_version}.`);
       }
     } catch (error) {
       console.error("[SyncService] Sync failed:", error.message || error);
