@@ -283,8 +283,16 @@ app.whenReady().then(() => {
       if (currentProjectId && String(event.projectId) === String(currentProjectId)) {
         const absolutePath = path.join(currentWorkspaceRoot, event.filepath);
         if (event.action === "update") {
-          console.log(`[Main] Received FS_EVENT update for ${event.filepath}, pulling...`);
-          await syncManager.pullAndSaveLocal(absolutePath, currentToken, currentProjectId, currentWorkspaceRoot);
+          console.log(`[Main] Received FS_EVENT update for ${event.filepath}, asking renderer...`);
+          if (mainWindow && !mainWindow.isDestroyed()) {
+             mainWindow.webContents.send("remote-file-update", {
+               filepath: absolutePath,
+               relPath: event.filepath,
+               projectId: currentProjectId,
+               workspaceRoot: currentWorkspaceRoot,
+               token: currentToken
+             });
+          }
         } else if (event.action === "delete") {
           console.log(`[Main] Received FS_EVENT delete for ${event.filepath}, removing locally...`);
           if (fs.existsSync(absolutePath)) {
@@ -301,6 +309,40 @@ app.whenReady().then(() => {
       }
     } catch (err) {
       console.error("[Main] FS_EVENT handle error:", err);
+    }
+  });
+
+  // ---- Smart Realtime Sync IPC ----
+  ipcMain.handle("sync:trigger-conflict", async (event, { filepath, relPath, localContent, projectId, token }) => {
+    try {
+      const cloudData = await syncManager.pullFromCloud(relPath, token, projectId);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("sync:conflict", {
+          filepath,
+          relPath,
+          localContent,
+          cloudContent: cloudData.content,
+          cloudVersion: cloudData.version,
+          projectId
+        });
+      }
+    } catch(err) {
+      console.error("[Main] sync:trigger-conflict error:", err);
+    }
+  });
+
+  ipcMain.handle("sync:safe-pull-and-reload", async (event, { filepath, projectId, token, workspaceRoot }) => {
+    try {
+      await syncManager.pullAndSaveLocal(filepath, token, projectId, workspaceRoot);
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        const fs = require("fs");
+        if (fs.existsSync(filepath)) {
+          const content = fs.readFileSync(filepath, "utf8");
+          mainWindow.webContents.send("reload-tab-content", { filepath, content });
+        }
+      }
+    } catch(err) {
+      console.error("[Main] sync:safe-pull-and-reload error:", err);
     }
   });
 

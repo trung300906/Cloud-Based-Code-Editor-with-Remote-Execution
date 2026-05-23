@@ -4,6 +4,7 @@
  
 
 import { getFocusedPane } from "./pane.js";
+import { detectLanguage } from "./lang-detect.js";
 
 let diffEditorInstance = null;
 let originalModel = null;
@@ -51,15 +52,15 @@ export function showDiffResolution(filepath, localContent, cloudContent, cloudVe
 
   // 4. Khởi tạo Monaco Diff Editor
   diffEditorInstance = monaco.editor.createDiffEditor(editorWrapper, {
-    theme: "vs-dark",
     readOnly: false, // Cho phép sửa code bên phải để merge tay
     originalEditable: false, // Bên trái (Cloud) không được sửa
     automaticLayout: true,
     renderSideBySide: true,
   });
 
-  originalModel = monaco.editor.createModel(cloudContent, "text/plain");
-  modifiedModel = monaco.editor.createModel(localContent, "text/plain");
+  const lang = detectLanguage(filepath);
+  originalModel = monaco.editor.createModel(cloudContent, lang);
+  modifiedModel = monaco.editor.createModel(localContent, lang);
 
   diffEditorInstance.setModel({
     original: originalModel,

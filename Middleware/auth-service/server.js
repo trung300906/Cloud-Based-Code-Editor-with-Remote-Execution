@@ -523,6 +523,17 @@ app.post("/api/project/sync/file", authenticateToken, async (req, res) => {
       const dbVersion = existing.rows[0].version;
       const dbHash = existing.rows[0].hash;
 
+      // Skip if content unchanged (same hash) - MUST BE BEFORE OCC CHECK
+      if (contentHash === dbHash) {
+        await client.query("ROLLBACK");
+        return res.status(200).json({
+          new_version: dbVersion,
+          hash: dbHash,
+          skipped: true,
+          message: "Content unchanged, no update needed.",
+        });
+      }
+
       // Step 2: OCC — Version mismatch = CONFLICT
       if (clientVersion < dbVersion) {
         await client.query("ROLLBACK");
@@ -531,17 +542,6 @@ app.post("/api/project/sync/file", authenticateToken, async (req, res) => {
           current_version: dbVersion,
           current_hash: dbHash,
           message: `Your version (${clientVersion}) is behind server (${dbVersion}). Pull and merge.`,
-        });
-      }
-
-      // Skip if content unchanged (same hash)
-      if (contentHash === dbHash) {
-        await client.query("ROLLBACK");
-        return res.status(200).json({
-          new_version: dbVersion,
-          hash: dbHash,
-          skipped: true,
-          message: "Content unchanged, no update needed.",
         });
       }
 

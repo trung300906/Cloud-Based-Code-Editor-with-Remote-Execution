@@ -6,7 +6,7 @@ import { LS, state } from "./state.js";
 export const DEFAULT_EDITOR_SETTINGS = {
   fontSize: 14,
   tabSize: 4,
-  insertSpaces: true,
+  insertSpaces: false,
   wordWrap: "off",
   minimap: true,
   lineNumbers: "on",
