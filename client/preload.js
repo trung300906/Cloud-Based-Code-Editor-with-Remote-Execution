@@ -18,6 +18,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
     ipcRenderer.send("request-open-folder", folderPath),
   createEntry: (type, dirPath, name) =>
     ipcRenderer.invoke("create-entry", { type, dirPath, name }),
+  renameEntry: (oldPath, newPath) =>
+    ipcRenderer.invoke("rename-entry", { oldPath, newPath }),
+  showItemInFolder: (fullPath) =>
+    ipcRenderer.send("show-item-in-folder", fullPath),
 
   // Custom menu bar → main process dialogs
   menuNewFile: () => ipcRenderer.send("menu-new-file"),
