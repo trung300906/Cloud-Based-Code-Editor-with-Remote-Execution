@@ -115,6 +115,36 @@ function registerFileIPC(mainWindow) {
       return { success: false, error: err.message };
     }
   });
+
+  // ---- Đổi tên file hoặc folder ----
+  ipcMain.handle("rename-entry", async (event, { oldPath, newPath }) => {
+    try {
+      if (fs.existsSync(newPath)) {
+        return { success: false, error: `"${path.basename(newPath)}" đã tồn tại.` };
+      }
+      fs.renameSync(oldPath, newPath);
+      
+      // Nếu có syncManager thì xoá file cũ trên Cloud, file mới sẽ được push sau
+      const { getToken, getProjectId, getWorkspaceRoot } = require("../../main.js");
+      const token = getToken();
+      const projectId = getProjectId();
+      const workspaceRoot = getWorkspaceRoot();
+      if (token && projectId && syncManager.deleteCloudFile) {
+        await syncManager.deleteCloudFile(oldPath, token, projectId, workspaceRoot);
+        syncManager.autoSync(newPath, token, projectId, workspaceRoot).catch(console.error);
+      }
+      
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // ---- Hiển thị file trong File Explorer / Finder ----
+  ipcMain.on("show-item-in-folder", (event, fullPath) => {
+    const { shell } = require("electron");
+    shell.showItemInFolder(fullPath);
+  });
 }
 
 module.exports = { registerFileIPC };

@@ -87,6 +87,15 @@ export function onFolderOpened(data) {
 
   buildTreeDOM(data.items, rootUl);
   restoreExpandedState();
+
+  // Handle right-click on empty space in the file tree
+  fileList.addEventListener("contextmenu", (e) => {
+    // If we didn't click on a file/folder label (which has its own context menu)
+    if (!e.target.closest(".tree-label")) {
+      e.preventDefault();
+      showContextMenu(e.clientX, e.clientY, state.currentDirPath || state.rootFolderPath, "empty");
+    }
+  });
 }
 
 /** Đệ quy tạo DOM nodes cho file tree. */
@@ -154,6 +163,13 @@ function buildFolderLabel(item, li) {
     saveTreeState();
   });
 
+  label.addEventListener("contextmenu", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    state.currentDirPath = item.path;
+    showContextMenu(e.clientX, e.clientY, item.path, "folder");
+  });
+
   return label;
 }
 
@@ -210,21 +226,109 @@ function showContextMenu(x, y, path, type) {
   
   contextMenu = document.createElement("div");
   contextMenu.className = "sidebar-context-menu";
-  contextMenu.innerHTML = `
-    <div class="menu-item" id="ctx-delete">Delete</div>
-  `;
+
+  let html = "";
+  if (type === "empty" || type === "folder") {
+    html += `
+      <div class="menu-item" id="ctx-new-file">New File...</div>
+      <div class="menu-item" id="ctx-new-folder">New Folder...</div>
+      <div class="menu-separator"></div>
+    `;
+  }
   
+  if (type === "file" || type === "folder") {
+    html += `
+      <div class="menu-item" id="ctx-open-folder">Open Containing Folder</div>
+      <div class="menu-item" id="ctx-open-terminal">Open in Integrated Terminal</div>
+      <div class="menu-separator"></div>
+      <div class="menu-item" id="ctx-copy-path">Copy Path</div>
+      <div class="menu-item" id="ctx-copy-rel-path">Copy Relative Path</div>
+      <div class="menu-separator"></div>
+      <div class="menu-item" id="ctx-rename">Rename...</div>
+      <div class="menu-item" id="ctx-delete" style="color: #f48771">Delete</div>
+    `;
+  } else if (type === "empty") {
+    html += `
+      <div class="menu-item" id="ctx-open-folder">Open Containing Folder</div>
+      <div class="menu-item" id="ctx-open-terminal">Open in Integrated Terminal</div>
+      <div class="menu-separator"></div>
+      <div class="menu-item" id="ctx-copy-path">Copy Path</div>
+      <div class="menu-item" id="ctx-copy-rel-path">Copy Relative Path</div>
+    `;
+  }
+
+  contextMenu.innerHTML = html;
   contextMenu.style.position = "fixed";
-  contextMenu.style.left = `${x}px`;
-  contextMenu.style.top = `${y}px`;
   document.body.appendChild(contextMenu);
 
-  document.getElementById("ctx-delete").addEventListener("click", () => {
+  const rect = contextMenu.getBoundingClientRect();
+  const menuX = x + rect.width > window.innerWidth ? window.innerWidth - rect.width : x;
+  const menuY = y + rect.height > window.innerHeight ? window.innerHeight - rect.height : y;
+  contextMenu.style.left = `${menuX}px`;
+  contextMenu.style.top = `${menuY}px`;
+
+  const bind = (id, fn) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener("click", (e) => { e.stopPropagation(); fn(); contextMenu.remove(); });
+  };
+
+  bind("ctx-new-file", () => {
+    showNameInput(type === "empty" ? (state.currentDirPath || state.rootFolderPath) : path, "file");
+  });
+  
+  bind("ctx-new-folder", () => {
+    showNameInput(type === "empty" ? (state.currentDirPath || state.rootFolderPath) : path, "folder");
+  });
+
+  bind("ctx-open-folder", () => {
+    if (window.electronAPI.showItemInFolder) window.electronAPI.showItemInFolder(path);
+  });
+
+  bind("ctx-open-terminal", () => {
+    import('./terminal.js').then(({ showTerminal, writeTerminal }) => {
+      showTerminal();
+      setTimeout(() => {
+        const dirPath = type === "file" ? path.substring(0, Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'))) : path;
+        if (window.electronAPI && window.electronAPI.sendRunInput) {
+           writeTerminal(`\r\ncd '${dirPath}'\r\n`);
+        }
+      }, 300);
+    }).catch(console.error);
+  });
+
+  bind("ctx-copy-path", () => {
+    navigator.clipboard.writeText(path);
+  });
+
+  bind("ctx-copy-rel-path", () => {
+    if (state.rootFolderPath && path.startsWith(state.rootFolderPath)) {
+      navigator.clipboard.writeText(path.substring(state.rootFolderPath.length + 1));
+    } else {
+      navigator.clipboard.writeText(path);
+    }
+  });
+
+  bind("ctx-rename", async () => {
+    const oldName = path.split(/[\\/]/).pop();
+    const newName = prompt(`Rename "${oldName}" to:`, oldName);
+    if (newName && newName !== oldName) {
+      const dirPath = path.substring(0, Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\')));
+      const newPath = dirPath + "/" + newName;
+      if (window.electronAPI.renameEntry) {
+        const res = await window.electronAPI.renameEntry(path, newPath);
+        if (res.success) {
+          window.electronAPI.requestOpenFolder(state.rootFolderPath);
+        } else {
+          alert("Rename failed: " + res.error);
+        }
+      }
+    }
+  });
+
+  bind("ctx-delete", () => {
     if (confirm(`Are you sure you want to delete ${path}?`)) {
       window.electronAPI.requestDeleteFile(path);
       
-      // Xóa file khỏi giao diện ngay lập tức thay vì đợi fs-event
-      // 1. Đóng tab nếu đang mở
       import('./tab.js').then(({ getTabByPath, closeTab }) => {
         const tab = getTabByPath(path);
         if (tab) {
@@ -233,24 +337,25 @@ function showContextMenu(x, y, path, type) {
         }
       }).catch(console.error);
 
-      // 2. Xóa khỏi sidebar
-      // Dùng querySelectorAll để tìm đúng node (đề phòng ký tự đặc biệt)
-      const labels = document.querySelectorAll(".tree-file-label");
+      const labels = document.querySelectorAll(".tree-file-label, .tree-folder-label");
       for (const label of labels) {
-        if (label.title === path) {
-          if (label.parentElement) label.parentElement.remove();
+        if (label.title === path || (label.parentElement && label.parentElement.dataset && label.parentElement.dataset.path === path)) {
+          if (label.parentElement && label.parentElement.classList.contains("tree-item")) {
+            label.parentElement.remove();
+          }
           break;
         }
       }
     }
-    contextMenu.remove();
   });
 
   const closeMenu = () => {
     if (contextMenu) contextMenu.remove();
-    document.removeEventListener("click", closeMenu);
+    document.removeEventListener("mousedown", closeMenu);
   };
-  setTimeout(() => document.addEventListener("click", closeMenu), 0);
+  setTimeout(() => document.addEventListener("mousedown", closeMenu), 0);
+  
+  contextMenu.addEventListener("mousedown", (e) => e.stopPropagation());
 }
 
  

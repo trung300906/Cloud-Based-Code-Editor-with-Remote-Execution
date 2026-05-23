@@ -1621,3 +1621,9 @@ body.light-mode .toast-message {
   background-color: var(--accent-color, #007acc);
   color: #fff;
 }
+
+.sidebar-context-menu .menu-separator {
+  height: 1px;
+  background-color: var(--border-color, #454545);
+  margin: 4px 0;
+}
