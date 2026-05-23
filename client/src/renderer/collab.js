@@ -31,11 +31,26 @@ let isCollabInited = false;
 
 let _docUpdateListener = null;
 let _awarenessUpdateListener = null;
+// Track chính xác instance nào chứa listener
+// để tránh gọi .off() trên instance mới sau resetCollab
+let _listenerYdoc = null;
+let _listenerAwareness = null;
+
+function detachDocListeners() {
+  if (_docUpdateListener && _listenerYdoc) {
+    try { _listenerYdoc.off("update", _docUpdateListener); } catch (_) {}
+  }
+  // Awareness dùng lib0/observable khác Yjs doc.
+  // Không gọi .off() trực tiếp vì nó hay warn "handler doesn't exist".
+  // Thay vào đó bỏ qua — khi awareness cũ bị GC, listener sẽ mất theo.
+  _docUpdateListener = null;
+  _awarenessUpdateListener = null;
+  _listenerYdoc = null;
+  _listenerAwareness = null;
+}
 
 function attachDocListeners() {
-  // Dọn listener cũ trước để tránh stacking
-  if (_docUpdateListener) ydoc.off("update", _docUpdateListener);
-  if (_awarenessUpdateListener) awareness.off("update", _awarenessUpdateListener);
+  detachDocListeners();
 
   _docUpdateListener = (update, origin) => {
     if (origin !== "network") {
@@ -57,22 +72,76 @@ function attachDocListeners() {
 
   ydoc.on("update", _docUpdateListener);
   awareness.on("update", _awarenessUpdateListener);
+  // Lưu lại đúng instance để detach sau này
+  _listenerYdoc = ydoc;
+  _listenerAwareness = awareness;
+}
+
+/**
+ * Tạo MonacoBinding cho editor + ytext + awareness.
+ * Luôn gọi sau khi ytext đã có content (hoặc có thể trống nếu file mới).
+ */
+function _createBinding(editor, docId, ytext, model) {
+  // Kiểm tra nếu đã bind đúng docId rồi thì bỏ qua
+  const existing = editorBindings.get(editor);
+  if (existing && existing.docId === docId) return;
+  if (existing) {
+    try { existing.binding.destroy(); } catch (_) {}
+    editorBindings.delete(editor);
+  }
+
+  // Guard: nếu model đã bị dispose (tab đóng trong lúc chờ sync) thì bỏ qua
+  if (!model || model.isDisposed()) return;
+
+  const binding = new MonacoBinding(ytext, model, new Set([editor]), awareness);
+  editorBindings.set(editor, { binding, docId });
+
+  // Broadcast awareness sau khi binding được tạo để remote user thấy cursor ngay.
+  // Dùng setTimeout(fn, 0) thay vì queueMicrotask — microtask vẫn chạy trong
+  // task hiện tại và có thể trigger deltaDecorations recursion.
+  // setTimeout defer hoàn toàn sang event loop mới, sau khi Monaco xong cycle.
+  setTimeout(() => {
+    if (currentUsername && !model.isDisposed()) {
+      try {
+        awareness.setLocalStateField("user", {
+          name: currentUsername,
+          color: userColors[ydoc.clientID % userColors.length]
+        });
+      } catch (_) {}
+    }
+  }, 0);
 }
 
 /**
  * Xử lý khi nhận được SyncStep 2 (Full State) từ room member.
- * Tất cả file đang chờ (pending) sẽ được giải phóng — CRDT state thắng.
+ * Với mỗi file đang chờ:
+ *   - Nếu CRDT có content cho file đó: dùng CRDT (tạo binding luôn)
+ *   - Nếu CRDT trống (A chưa mở file): seed từ local model rồi tạo binding
  */
 function onSyncStep2Received(payload) {
   Y.applyUpdate(ydoc, payload, "network");
   syncReceived = true;
   console.log("[Collab] Đã đồng bộ Full State từ Room!");
 
-  // Giải phóng tất cả file đang chờ sync — CRDT state đã có nội dung
   for (const [docId, pending] of pendingSyncFiles) {
     clearTimeout(pending.timeout);
-    // ytext đã được populate bởi CRDT sync → MonacoBinding sẽ tự cập nhật model
-    console.log(`[Collab] File "${docId}" — dùng CRDT state (bỏ qua local).`);
+    const ytext = ydoc.getText(docId);
+
+    if (ytext.length === 0 && pending.model) {
+      // File này không có trong CRDT state của A → seed từ local của B
+      const localContent = pending.model.getValue();
+      if (localContent !== "") {
+        console.log(`[Collab] File "${docId}" — không có trong CRDT, seed từ local.`);
+        ydoc.transact(() => { ytext.insert(0, localContent); });
+      }
+    } else {
+      console.log(`[Collab] File "${docId}" — dùng CRDT state.`);
+    }
+
+    // Tạo binding sau khi ytext đã có content
+    if (pending.editor && pending.model) {
+      _createBinding(pending.editor, docId, ytext, pending.model);
+    }
   }
   pendingSyncFiles.clear();
 }
@@ -118,10 +187,26 @@ export function initCollab() {
       console.log(`[Collab] Gateway ROOM_EVENT: ${memberCount} other member(s). isInCollabRoom=${state.isInCollabRoom}`);
 
       // Vừa có người mới join → gửi SyncStep 1 để họ nhận state
-      // (Gateway đã relay, nhưng gửi lại cho chắc)
       if (!wasInRoom && state.isInCollabRoom) {
         console.log("[Collab] Room member detected — requesting sync...");
         requestCollabSync();
+      }
+
+      // Phòng vừa trống → xóa ngay tất cả remote awareness.
+      // Dùng setTimeout(fn, 0) tránh deltaDecorations recursion:
+      // removeAwarenessStates trigger _rerenderDecorations trong MonacoBinding
+      // nếu chạy đồng bộ có thể vào đúng lúc Monaco đang vẽ decorations.
+      if (memberCount === 0) {
+        setTimeout(() => {
+          const remoteClientIds = [...awareness.getStates().keys()]
+            .filter(id => id !== ydoc.clientID);
+          if (remoteClientIds.length > 0) {
+            try {
+              awarenessProtocol.removeAwarenessStates(awareness, remoteClientIds, "local");
+              console.log(`[Collab] Removed ${remoteClientIds.length} remote cursor(s) — room empty.`);
+            } catch (_) {}
+          }
+        }, 0);
       }
     }
   });
@@ -130,12 +215,11 @@ export function initCollab() {
 export function setCollabUser(username) {
   currentUsername = username;
   const color = userColors[ydoc.clientID % userColors.length];
-  try {
-    awareness.setLocalStateField("user", { name: username, color });
-  } catch (_) {
-    // Fallback nếu gọi trong context Monaco đang update decorations
-    queueMicrotask(() => awareness.setLocalStateField("user", { name: username, color }));
-  }
+  // setTimeout(fn, 0): defer hoàn toàn sang event loop mới.
+  // Tránh deltaDecorations recursion khi gọi trong context Monaco đang render.
+  setTimeout(() => {
+    try { awareness.setLocalStateField("user", { name: username, color }); } catch (_) {}
+  }, 0);
 }
 
 export function requestCollabSync() {
@@ -160,10 +244,8 @@ export function resetCollab() {
   }
   editorBindings.clear();
 
-  // Null ra các listener refs trước khi tạo objects mới
-  // (Listeners cũ đã gắn vào ydoc/awareness cũ, sẽ bị GC cùng chúng)
-  _docUpdateListener = null;
-  _awarenessUpdateListener = null;
+  // Detach listeners khỏi đúng instance cũ trước khi tạo mới
+  detachDocListeners();
 
   ydoc = new Y.Doc();
   awareness = new awarenessProtocol.Awareness(ydoc);
@@ -220,66 +302,45 @@ export function bindEditorToCollab(editor, filePath) {
   const model = editor.getModel();
   if (!model) return;
 
-  // Nếu file đã được khởi tạo trong Yjs (hoặc đã nhận sync) → chỉ tạo binding, không seed
   if (!initializedMap.has(docId)) {
-    if (state.isInCollabRoom) {
+    ydoc.transact(() => { initializedMap.set(docId, true); });
+
+    if (state.isInCollabRoom && !syncReceived) {
       // ═══ AWAIT SYNC OR SEED ═══
-      // Đang trong room → KHÔNG seed local content.
-      // Đánh dấu đã init (để tránh seed lại nếu chuyển tab rồi quay lại)
-      ydoc.transact(() => {
-        initializedMap.set(docId, true);
-      });
-
-      // Nếu chưa nhận sync → đợi, với timeout fallback
-      if (!syncReceived) {
-        const timeoutId = setTimeout(() => {
-          // Timeout! Không ai trả lời SyncStep 2.
-          // Room có thể trống → seed từ local.
-          pendingSyncFiles.delete(docId);
-          if (ytext.length === 0 && model) {
-            const localContent = model.getValue();
-            if (localContent !== "") {
-              console.log(`[Collab] Sync timeout cho "${docId}" — seed từ local.`);
-              ydoc.transact(() => {
-                ytext.insert(0, localContent);
-              });
-            }
+      // Đang trong room và chưa nhận Full State → KHÔNG tạo binding ngay.
+      // MonacoBinding khởi tạo sẽ sync ytext→model: nếu ytext rỗng, model bị trắng.
+      // Phải đợi biết content trước rồi mới tạo binding.
+      const timeoutId = setTimeout(() => {
+        pendingSyncFiles.delete(docId);
+        // Timeout: không ai trả lời → room trống → seed từ local
+        if (ytext.length === 0) {
+          const localContent = model.getValue();
+          if (localContent !== "") {
+            console.log(`[Collab] Sync timeout cho "${docId}" — seed từ local.`);
+            ydoc.transact(() => { ytext.insert(0, localContent); });
           }
-        }, SYNC_TIMEOUT_MS);
-
-        pendingSyncFiles.set(docId, { model, editor, timeout: timeoutId });
-        requestCollabSync();
-        console.log(`[Collab] File "${docId}" — chờ sync (timeout ${SYNC_TIMEOUT_MS}ms)...`);
-      }
-      // Nếu đã nhận sync rồi → ytext đã có content từ CRDT, không cần làm gì thêm
-    } else {
-      // ═══ SOLO MODE ═══
-      // Không trong room → seed local content ngay
-      const currentContent = model.getValue();
-      ydoc.transact(() => {
-        initializedMap.set(docId, true);
-        if (currentContent !== "" && ytext.length === 0) {
-          ytext.insert(0, currentContent);
         }
-      });
+        // Tạo binding sau timeout
+        _createBinding(editor, docId, ytext, model);
+      }, SYNC_TIMEOUT_MS);
+
+      pendingSyncFiles.set(docId, { model, editor, timeout: timeoutId });
+      requestCollabSync();
+      console.log(`[Collab] File "${docId}" — chờ sync (timeout ${SYNC_TIMEOUT_MS}ms)...`);
+      return; // ← QUAN TRỌNG: không tạo binding ở đây
+    } else {
+      // ═══ SOLO MODE hoặc đã nhận sync rồi ═══
+      // Nếu ytext trống (file mới hoặc chưa có trong CRDT) → seed từ local
+      if (ytext.length === 0) {
+        const currentContent = model.getValue();
+        if (currentContent !== "") {
+          ydoc.transact(() => { ytext.insert(0, currentContent); });
+        }
+      }
+      // Nếu syncReceived=true, ytext có thể đã có content từ CRDT → không seed
     }
   }
 
-  const binding = new MonacoBinding(
-    ytext,
-    model,
-    new Set([editor]),
-    awareness
-  );
-  editorBindings.set(editor, { binding, docId });
-
-  // Sau khi binding được tạo, broadcast lại awareness để remote user thấy cursor ngay
-  queueMicrotask(() => {
-    if (currentUsername) {
-      awareness.setLocalStateField("user", {
-        name: currentUsername,
-        color: userColors[ydoc.clientID % userColors.length]
-      });
-    }
-  });
+  // Tạo binding (solo mode, hoặc đã nhận sync, hoặc file đã init trước)
+  _createBinding(editor, docId, ytext, model);
 }
