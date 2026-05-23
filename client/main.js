@@ -366,11 +366,27 @@ app.whenReady().then(() => {
 
   ipcMain.handle("sync:safe-pull-and-reload", async (event, { filepath, projectId, token, workspaceRoot }) => {
     try {
+      // Đọc nội dung hiện tại trên disk TRƯỚC khi pull từ cloud
+      const fs = require("fs");
+      const existingContent = fs.existsSync(filepath)
+        ? fs.readFileSync(filepath, "utf8")
+        : null;
+
       await syncManager.pullAndSaveLocal(filepath, token, projectId, workspaceRoot);
+
       if (mainWindow && !mainWindow.isDestroyed()) {
-        const fs = require("fs");
         if (fs.existsSync(filepath)) {
           const content = fs.readFileSync(filepath, "utf8");
+
+          // Nếu nội dung cloud giống hệt local → bỏ qua reload.
+          // Trường hợp này xảy ra khi A vừa Ctrl+S và nhận lại chính
+          // FS_EVENT của mình → cloud content = local content vừa save.
+          // Gọi model.setValue() sẽ reset cursor về đầu file không cần thiết.
+          if (content === existingContent) {
+            console.log(`[Main] safe-pull-and-reload: content unchanged for ${filepath}, skip reload.`);
+            return;
+          }
+
           mainWindow.webContents.send("reload-tab-content", { filepath, content });
         }
       }

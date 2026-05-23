@@ -3,8 +3,9 @@
 // Supports OCC: passes cloudVersion through resolution for version-aware push
  
 
-import { getFocusedPane } from "./pane.js";
+import { getFocusedPane, getPaneForTab, focusPane } from "./pane.js";
 import { detectLanguage } from "./lang-detect.js";
+import { openOrActivateTab, getTabByPath, activateTab } from "./tab.js";
 
 let diffEditorInstance = null;
 let originalModel = null;
@@ -22,6 +23,19 @@ export function showDiffResolution(filepath, localContent, cloudContent, cloudVe
   const mainEditor = document.getElementById("main-editor");
   
   if (!diffContainer || !mainEditor) return;
+
+  // 0. Mở / activate tab của file bị conflict TRƯỚC khi show diff.
+  //    Đảm bảo user thấy đúng file, không bị ở trên tab Untitled.
+  const existingTab = getTabByPath(filepath);
+  if (existingTab) {
+    // Tab đã mở → focus nó lên
+    const p = getPaneForTab(existingTab.id);
+    if (p) focusPane(p.id);
+    activateTab(existingTab.id);
+  } else {
+    // Tab chưa mở → tạo mới với localContent
+    openOrActivateTab(filepath, localContent);
+  }
 
   // 1. Ẩn editor thường, hiện container của diff editor
   mainEditor.style.display = "none";
