@@ -53,6 +53,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onSyncConflict: (callback) => ipcRenderer.on('sync:conflict', (_event, data) => callback(data)),
   resolveConflict: (filepath, resolvedContent, cloudVersion) =>
     ipcRenderer.invoke('sync:resolve', filepath, resolvedContent, cloudVersion),
+  onFsEvent: (cb) => ipcRenderer.on('fs-event', (e, data) => cb(data)),
+  requestDeleteFile: (filePath) => ipcRenderer.send('request-delete-file', filePath),
 
   // Terminal & Run Code
   sendRunCode: (data) => ipcRenderer.send('run-code', data),

@@ -1598,3 +1598,26 @@ body.light-mode .toast-title {
 body.light-mode .toast-message {
   color: #616161;
 }
+
+/* Sidebar Context Menu */
+.sidebar-context-menu {
+  position: fixed;
+  background-color: var(--bg-color, #252526);
+  border: 1px solid var(--border-color, #454545);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  padding: 4px 0;
+  border-radius: 4px;
+  z-index: 9999;
+  min-width: 150px;
+  color: var(--text-color, #cccccc);
+  font-family: var(--ui-font);
+  font-size: 13px;
+}
+.sidebar-context-menu .menu-item {
+  padding: 6px 20px;
+  cursor: pointer;
+}
+.sidebar-context-menu .menu-item:hover {
+  background-color: var(--accent-color, #007acc);
+  color: #fff;
+}

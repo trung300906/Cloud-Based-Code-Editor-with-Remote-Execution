@@ -47,6 +47,10 @@ function registerFileIPC(mainWindow) {
   // ---- Read text file và gửi nội dung về renderer ----
   ipcMain.on("request-read-file", (event, filePath) => {
     try {
+      if (!fs.existsSync(filePath)) {
+        console.log(`[Main] request-read-file: File không tồn tại (có thể đã bị xóa): ${filePath}`);
+        return;
+      }
       const content = fs.readFileSync(filePath, "utf-8");
       mainWindow.webContents.send("file-open", { filePath, content });
     } catch (err) {

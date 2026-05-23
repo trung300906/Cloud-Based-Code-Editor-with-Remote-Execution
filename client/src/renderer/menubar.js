@@ -340,6 +340,7 @@ export async function initCustomMenubar() {
     const logoutBtn = userPopover.querySelector("#logout-btn");
     const editProfileBtn = userPopover.querySelector("#edit-profile-btn");
     const copyTokenBtn = userPopover.querySelector("#copy-token-btn");
+    const copyRoomBtn = userPopover.querySelector("#copy-room-btn");
     const userAvatar = userPopover.querySelector("#user-avatar");
     const userName = userPopover.querySelector("#user-name");
     const userSub = userPopover.querySelector("#user-sub");
@@ -561,16 +562,44 @@ export async function initCustomMenubar() {
             body: JSON.stringify({ username, password }),
           });
 
-          const payload = await response.json().catch(() => ({}));
+          let payload = await response.json().catch(() => ({}));
           if (!response.ok || !payload?.token) {
-            const message =
-              payload?.error || `Login failed (${response.status})`;
-            if (loginStatus) {
-              loginStatus.textContent = message;
-              loginStatus.classList.add("is-error");
-              loginStatus.classList.remove("is-ok");
+            if (response.status === 409 && payload?.error === "user already online") {
+              const forceLogin = confirm("User is already logged in elsewhere. Do you want to kick the old session and login here?");
+              if (!forceLogin) {
+                if (loginStatus) {
+                  loginStatus.textContent = "Login cancelled";
+                  loginStatus.classList.remove("is-error", "is-ok");
+                }
+                return;
+              }
+              
+              // Retry with force: true
+              const forceResponse = await fetch(AUTH_URL, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username, password, force: true }),
+              });
+              payload = await forceResponse.json().catch(() => ({}));
+              if (!forceResponse.ok || !payload?.token) {
+                const message = payload?.error || `Login failed (${forceResponse.status})`;
+                if (loginStatus) {
+                  loginStatus.textContent = message;
+                  loginStatus.classList.add("is-error");
+                  loginStatus.classList.remove("is-ok");
+                }
+                return;
+              }
+            } else {
+              const message =
+                payload?.error || `Login failed (${response.status})`;
+              if (loginStatus) {
+                loginStatus.textContent = message;
+                loginStatus.classList.add("is-error");
+                loginStatus.classList.remove("is-ok");
+              }
+              return;
             }
-            return;
           }
 
           currentProfile = {
@@ -697,6 +726,26 @@ export async function initCustomMenubar() {
         }
         if (window.showToast) {
           window.showToast("Token copied to clipboard", window.ToastType.INFO);
+        }
+      });
+    }
+
+    if (copyRoomBtn) {
+      copyRoomBtn.addEventListener("click", async () => {
+        const roomId = userRoom.textContent || "";
+        if (!roomId || roomId === "---") return;
+        try {
+          await navigator.clipboard.writeText(roomId);
+        } catch (_) {
+          const tmp = document.createElement("textarea");
+          tmp.value = roomId;
+          document.body.appendChild(tmp);
+          tmp.select();
+          document.execCommand("copy");
+          tmp.remove();
+        }
+        if (window.showToast) {
+          window.showToast("Room ID copied to clipboard", window.ToastType.INFO);
         }
       });
     }

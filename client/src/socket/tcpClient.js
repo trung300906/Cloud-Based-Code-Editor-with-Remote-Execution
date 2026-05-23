@@ -126,6 +126,7 @@ function dispatch(type, requestId, data) {
   if (type === TYPE.CURSOR) handleCursor(requestId, data);
   if (type === TYPE.ERR) handleError(requestId, data);
   if (type === TYPE.LINT) handleLint(requestId, data);
+  if (type === TYPE.FS_EVENT) handleFsEvent(data);
 }
 
 function startHeartbeat() {
@@ -157,9 +158,17 @@ function setLintCallback(cb) {
   lintCallback = cb;
 }
 
+let fsEventCallback = null;
+function setFsEventCallback(cb) {
+  fsEventCallback = cb;
+}
+
 function handleLint(requestId, data) {
   if (lintCallback) lintCallback(data);
-  // Optional: console.log(`[🔎 Lint Result - ${requestId}]:`, data);
+}
+
+function handleFsEvent(data) {
+  if (fsEventCallback) fsEventCallback(data);
 }
 
 function handleResult(requestId, data) {
@@ -198,4 +207,4 @@ if (process.env.TCP_AUTO_CONNECT !== "0") {
   connect();
 }
 
-module.exports = { send, sendAuth, setSession, connect, TYPE, setTerminalCallback, setLintCallback };
+module.exports = { send, sendAuth, setSession, connect, TYPE, setTerminalCallback, setLintCallback, setFsEventCallback };
