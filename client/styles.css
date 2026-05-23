@@ -1627,3 +1627,25 @@ body.light-mode .toast-message {
   background-color: var(--border-color, #454545);
   margin: 4px 0;
 }
+
+/* Yjs Remote Cursor */
+.yRemoteSelection {
+  background-color: rgba(250, 129, 0, 0.4);
+}
+.yRemoteSelectionHead {
+  position: absolute;
+  border-left: orange solid 2px;
+  border-top: orange solid 2px;
+  border-bottom: orange solid 2px;
+  height: 100%;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.yRemoteSelectionHead::after {
+  position: absolute;
+  content: ' ';
+  border: 3px solid orange;
+  border-radius: 4px;
+  left: -4px;
+  top: -5px;
+}

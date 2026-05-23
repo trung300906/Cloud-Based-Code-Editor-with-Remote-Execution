@@ -6,6 +6,7 @@ import { state, LS } from "./state.js";
 import { getFocusedPane, splitEditor, removePane } from "./pane.js";
 import { openOrActivateTab } from "./tab.js";
 import { setEditorLanguage } from "./monaco-init.js";
+import { requestCollabSync, resetCollab, setCollabUser } from "./collab.js";
 import {
   DEFAULT_EDITOR_SETTINGS,
   loadEditorSettings,
@@ -155,6 +156,13 @@ export async function initCustomMenubar() {
   // Lắng nghe yêu cầu cập nhật file từ server (Smart OCC check)
   if (window.electronAPI && window.electronAPI.onRemoteFileUpdate) {
     window.electronAPI.onRemoteFileUpdate(async (data) => {
+      // Khi đang trong Collab Room, CRDT là nguồn sự thật duy nhất.
+      // KHÔNG pull file từ cloud — sẽ phá hỏng Yjs binding.
+      if (state.isInCollabRoom) {
+        console.log(`[Renderer] Skipping remote-file-update (in collab room): ${data.filepath}`);
+        return;
+      }
+
       const { filepath, relPath, projectId, workspaceRoot, token } = data;
       let isModified = false;
       let localContent = "";
@@ -404,6 +412,8 @@ export async function initCustomMenubar() {
       const displayName = safeProfile.username || "guest";
       const roomId = safeProfile.myRoomId || "---";
       const token = safeProfile.token || "";
+
+      setCollabUser(displayName);
 
       if (userWrapper) userWrapper.classList.toggle("is-auth", isAuth);
       if (usernameInput) usernameInput.value = displayName;
@@ -824,6 +834,7 @@ export async function initCustomMenubar() {
           activeRoomHost.textContent = payload.owner_username;
 
           // Show workspace selection modal
+          state.isInCollabRoom = true;
           showWorkspaceModal(payload.projects, payload.owner_username, roomIdToJoin);
         } catch (err) {
           alert("Error: " + err.message);
@@ -857,6 +868,8 @@ export async function initCustomMenubar() {
         if (window.electronAPI?.leaveRoom) {
           window.electronAPI.leaveRoom();
         }
+        state.isInCollabRoom = false;
+        resetCollab();
       });
     }
 
@@ -891,6 +904,7 @@ export async function initCustomMenubar() {
                  if (res.success) {
                    // Clone project content for guest
                    window.electronAPI.cloneGuestProject({ projectId: proj.id, token: currentProfile.token });
+                   requestCollabSync();
                  } else {
                    alert("Error setting project context: " + res.error);
                  }

@@ -46,6 +46,7 @@ function restoreExpandedState() {
  * @param {{ items: Array, folderPath: string }} data
  */
 export function onFolderOpened(data) {
+  const isSameFolder = state.rootFolderPath === data.folderPath;
   state.rootFolderPath = data.folderPath;
   state.currentDirPath = data.folderPath;
   localStorage.setItem(LS.FOLDER, data.folderPath);
@@ -58,7 +59,7 @@ export function onFolderOpened(data) {
   const cleanPath = data.folderPath ? data.folderPath.replace(/[\\/]+$/, "") : "";
   const folderName = cleanPath ? cleanPath.split(/[\\/]/).pop() : "Untitled Project";
   
-  if (data.folderPath && !data.folderPath.includes("cbcode_guest_")) {
+  if (data.folderPath && !data.folderPath.includes("cbcode_guest_") && !isSameFolder) {
     if (window.electronAPI?.setProject) {
       window.electronAPI.setProject(folderName, data.folderPath).then((result) => {
         if (result.success) {
