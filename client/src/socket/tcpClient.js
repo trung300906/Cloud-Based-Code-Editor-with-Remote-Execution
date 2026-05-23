@@ -18,6 +18,10 @@ let heartbeatTimer = null;
 let pongTimer = null;
 let reconnectDelay = 1000;
 let isConnected = false;
+let onTerminalOutput = null;
+let onLintOutput = null;
+let onFsEvent = null;
+let onCollabEvent = null;
 
 const client = new net.Socket();
 
@@ -79,6 +83,11 @@ function sendAuth(reason) {
   return send(TYPE.AUTH, "auth", _buildAuthPayload(reason), { encrypt: true });
 }
 
+function sendCollab(dataBuf) {
+  // COLLAB frames are sent unencrypted to reduce latency and overhead, and the data is already a buffer
+  return send(TYPE.COLLAB, "collab", dataBuf, { encrypt: false });
+}
+
 function setSession(opts = {}) {
   if (Object.prototype.hasOwnProperty.call(opts, "token")) {
     session.setToken(opts.token);
@@ -107,6 +116,15 @@ client.on("data", (chunk) => {
 
     if (parsed.type === TYPE.PING) {
       handlePong();
+      continue;
+    }
+
+    if (parsed.type === TYPE.COLLAB) {
+      // Decode with decrypt=false because we send/receive COLLAB as raw unencrypted buffers
+      const decoded = decodeFramePayload(parsed.type, parsed.payload, { decrypt: false });
+      if (decoded && onCollabEvent) {
+        onCollabEvent(decoded.dataBuf);
+      }
       continue;
     }
 
@@ -148,31 +166,32 @@ function handleAuthAck(requestId, data) {
   console.log(`[TCP Client] ✅ AUTH OK (${requestId})`, data);
 }
 
-let terminalCallback = null;
 function setTerminalCallback(cb) {
-  terminalCallback = cb;
+  onTerminalOutput = cb;
 }
 
-let lintCallback = null;
 function setLintCallback(cb) {
-  lintCallback = cb;
+  onLintOutput = cb;
 }
 
-let fsEventCallback = null;
 function setFsEventCallback(cb) {
-  fsEventCallback = cb;
+  onFsEvent = cb;
+}
+
+function setCollabCallback(cb) {
+  onCollabEvent = cb;
 }
 
 function handleLint(requestId, data) {
-  if (lintCallback) lintCallback(data);
+  if (onLintOutput) onLintOutput(data);
 }
 
 function handleFsEvent(data) {
-  if (fsEventCallback) fsEventCallback(data);
+  if (onFsEvent) onFsEvent(data);
 }
 
 function handleResult(requestId, data) {
-  if (terminalCallback) terminalCallback(data);
+  if (onTerminalOutput) onTerminalOutput(data);
   console.log(`[💻 Code Result - ${requestId}]:`, data);
 }
 
@@ -207,4 +226,4 @@ if (process.env.TCP_AUTO_CONNECT !== "0") {
   connect();
 }
 
-module.exports = { send, sendAuth, setSession, connect, TYPE, setTerminalCallback, setLintCallback, setFsEventCallback };
+module.exports = { send, sendAuth, sendCollab, setSession, connect, TYPE, setTerminalCallback, setLintCallback, setFsEventCallback, setCollabCallback };

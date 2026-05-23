@@ -28,6 +28,9 @@ export const state = {
   // ---- UI state ----
   openMenuItem: null, // menu item đang mở trong custom menubar
   dropActive: false, // đang hiển thị drop zones (drag & drop tab)
+
+  // ---- Collab room state ----
+  isInCollabRoom: false, // true khi Gateway xác nhận có người khác trong room
 };
 
 /** localStorage keys */

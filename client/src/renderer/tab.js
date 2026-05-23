@@ -9,6 +9,7 @@ import { detectLanguage } from "./lang-detect.js";
 import { BC_ICON, getBcFileIcon } from "./icons.js";
 import { escapeHtml, isImageFile, isPdfFile } from "./utils.js";
 import { updateBreadcrumb } from "./breadcrumb.js";
+import { bindEditorToCollab, unbindEditor } from "./collab.js";
 import {
   applyEditorSettingsToModel,
   loadEditorSettings,
@@ -164,7 +165,13 @@ export function activateTabInPane(tabId, pane) {
     if (!pane.editor) return;
     const node = pane.editor.getDomNode();
     if (node) node.style.display = '';
+    // QUAN TRỌNG: Hủy binding Yjs cũ TRƯỚC khi swap model.
+    // Nếu không, binding cũ sẽ phản ứng với model change và phá hỏng ytext.
+    unbindEditor(pane.editor);
     pane.editor.setModel(tab.model);
+    if (tab.filePath) {
+      bindEditorToCollab(pane.editor, tab.filePath);
+    }
   }
 
   if (pane.id === state.focusedPaneId) {

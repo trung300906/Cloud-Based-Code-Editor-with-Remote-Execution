@@ -22,6 +22,7 @@ import {
   onFolderOpened,
 } from "./sidebar.js";
 import { initTerminal, showTerminal, clearTerminal, writeTerminal, toggleTerminal, lockTerminalForExecution } from "./terminal.js";
+import { initCollab, resetCollab, requestCollabSync } from "./collab.js";
 
  
 // DOM READY — khởi tạo toàn bộ UI components
@@ -40,6 +41,9 @@ window.addEventListener("DOMContentLoaded", async () => {
 
   // Khởi tạo Terminal
   initTerminal();
+
+  // Khởi tạo Real-time Collab
+  initCollab();
 
   // Nút Toggle Terminal
   const toggleTerminalBtn = document.getElementById("toggle-terminal-btn");

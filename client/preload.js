@@ -62,6 +62,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   
   // Smart Realtime Sync
   onRemoteFileUpdate: (cb) => ipcRenderer.on("remote-file-update", (e, data) => cb(data)),
+  sendCollabData: (dataBuf) => ipcRenderer.send("send-collab-data", dataBuf),
+  onCollabData: (cb) => ipcRenderer.on("collab-event", (e, dataBuf) => cb(dataBuf)),
   triggerConflict: (data) => ipcRenderer.invoke("sync:trigger-conflict", data),
   safePullAndReload: (data) => ipcRenderer.invoke("sync:safe-pull-and-reload", data),
   onReloadTabContent: (cb) => ipcRenderer.on("reload-tab-content", (e, data) => cb(data)),

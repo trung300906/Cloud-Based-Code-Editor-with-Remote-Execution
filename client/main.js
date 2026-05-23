@@ -25,6 +25,7 @@ let currentWorkspaceRoot = null; // Absolute path to the workspace root folder
 let originalProjectId = null;    // Lưu lại project ID gốc trước khi join room
 let originalWorkspaceRoot = null; // Lưu lại thư mục gốc trước khi join room
 let currentRunId = null;       // Active code execution request ID
+let isInCollabRoom = false;    // True khi đang trong collab room (Guest hoặc Host có guest)
 
 function getToken() {
   return currentToken;
@@ -140,6 +141,11 @@ app.whenReady().then(() => {
       }
 
       currentProjectId = data.project?.id || null;
+      if (currentProjectId) {
+        tcpClient.setSession({ roomId: String(currentProjectId) });
+      } else {
+        tcpClient.setSession({ roomId: "default" });
+      }
       console.log(
         `[Main] Project set: id=${currentProjectId}, name="${name}", created=${data.created}`,
       );
@@ -168,6 +174,7 @@ app.whenReady().then(() => {
         originalWorkspaceRoot = currentWorkspaceRoot;
       }
       currentProjectId = data.projectId;
+      tcpClient.setSession({ roomId: String(currentProjectId) });
       
       // Create a local temporary workspace for the guest
       const guestFolder = path.join(os.tmpdir(), "cbcode_guest_" + Date.now());
@@ -175,6 +182,7 @@ app.whenReady().then(() => {
       currentWorkspaceRoot = guestFolder;
       
       console.log(`[Main] Guest Project set: id=${currentProjectId}, name="${data.name}", root="${currentWorkspaceRoot}"`);
+      isInCollabRoom = true;
       
       // We don't preload syncVersionsFromServer yet, wait for cloneGuestProject to finish
       return { success: true, workspaceRoot: currentWorkspaceRoot };
@@ -226,6 +234,12 @@ app.whenReady().then(() => {
       // Restore state FIRST
       currentProjectId = originalProjectId;
       currentWorkspaceRoot = originalWorkspaceRoot;
+      if (currentProjectId) {
+        tcpClient.setSession({ roomId: String(currentProjectId) });
+      } else {
+        tcpClient.setSession({ roomId: "default" });
+      }
+      isInCollabRoom = false;
       
       // Tell UI to restore original sidebar so files are closed
       if (currentWorkspaceRoot && fs.existsSync(currentWorkspaceRoot)) {
@@ -271,27 +285,46 @@ app.whenReady().then(() => {
     }
   });
 
-  tcpClient.setLintCallback((data) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send("lint-result", data);
-    }
-  });
+    tcpClient.setLintCallback((data) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("lint-result", data);
+      }
+    });
+
+    tcpClient.setCollabCallback((dataBuf) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("collab-event", dataBuf);
+      }
+      // Intercept ROOM_EVENT (sub-type 4) để cập nhật isInCollabRoom cho main process
+      // Host không bao giờ gọi project:set_guest, nên cần lấy thông tin từ Gateway
+      if (dataBuf && dataBuf.length >= 2 && dataBuf[0] === 4) {
+        const otherMemberCount = dataBuf[1] || 0;
+        isInCollabRoom = otherMemberCount > 0;
+        console.log(`[Main] ROOM_EVENT: ${otherMemberCount} other member(s), isInCollabRoom=${isInCollabRoom}`);
+      }
+    });
 
   tcpClient.setFsEventCallback(async (data) => {
     try {
-      const event = JSON.parse(data);
+      const event = typeof data === "string" ? JSON.parse(data) : data;
       if (currentProjectId && String(event.projectId) === String(currentProjectId)) {
         const absolutePath = path.join(currentWorkspaceRoot, event.filepath);
         if (event.action === "update") {
-          console.log(`[Main] Received FS_EVENT update for ${event.filepath}, asking renderer...`);
-          if (mainWindow && !mainWindow.isDestroyed()) {
-             mainWindow.webContents.send("remote-file-update", {
-               filepath: absolutePath,
-               relPath: event.filepath,
-               projectId: currentProjectId,
-               workspaceRoot: currentWorkspaceRoot,
-               token: currentToken
-             });
+          // Khi đang trong collab room, SKIP việc forward remote-file-update.
+          // CRDT là nguồn sự thật, không cho SyncService ghi đè model.
+          if (!isInCollabRoom) {
+            console.log(`[Main] Received FS_EVENT update for ${event.filepath}, asking renderer...`);
+            if (mainWindow && !mainWindow.isDestroyed()) {
+               mainWindow.webContents.send("remote-file-update", {
+                 filepath: absolutePath,
+                 relPath: event.filepath,
+                 projectId: currentProjectId,
+                 workspaceRoot: currentWorkspaceRoot,
+                 token: currentToken
+               });
+            }
+          } else {
+            console.log(`[Main] Skipping FS_EVENT update for ${event.filepath} (in collab room)`);
           }
         } else if (event.action === "delete") {
           console.log(`[Main] Received FS_EVENT delete for ${event.filepath}, removing locally...`);
@@ -394,6 +427,11 @@ app.whenReady().then(() => {
     if (currentRunId) {
       tcpClient.send(tcpClient.TYPE.INPUT, currentRunId, Buffer.from(inputData, 'utf8'), { encrypt: true });
     }
+  });
+
+  ipcMain.on("send-collab-data", (_event, dataBuf) => {
+    // Send binary collab frame directly via TCP
+    tcpClient.sendCollab(dataBuf);
   });
 
   app.on("activate", () => {

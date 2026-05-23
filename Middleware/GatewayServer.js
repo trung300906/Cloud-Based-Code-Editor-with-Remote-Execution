@@ -64,6 +64,7 @@ const TYPE = {
   INPUT: 0x07,
   LINT: 0x08,
   FS_EVENT: 0x09,
+  COLLAB: 0x0a,
   PING: 0xff,
 };
 
@@ -381,34 +382,43 @@ class GatewayServer {
 
     const parser = new FrameParser(
       (type, payload, rawFrame) => {
-        // 1. Kiểm tra Rate Limit
-        if (!limiter.consume()) {
-          const now = Date.now();
-          if (now - lastSpamLogAt >= 5000) {
-            lastSpamLogAt = now;
-            _log("warn", `[Gateway] 🛑 SPAM BLOCK: ${clientId}`);
-          }
-          clientSocket.write(
-            buildFrame(TYPE.ERR, "gateway", "Rate limit exceeded"),
-          );
-          return;
-        }
-
-        // 2. PING luôn cho phép (không mã hóa)
+        // 2. PING luôn cho phép (không mã hóa, không tính rate limit)
         if (type === TYPE.PING) {
           clientSocket.write(buildFrame(TYPE.PING, "sys", '{"pong": "ok"}'));
           return;
         }
 
+        // COLLAB bypass rate limit — awareness + CRDT updates fire hàng chục lần/giây
+        // khi người dùng đang gõ hoặc di chuột, đây là hành vi hợp lệ.
+        // Rate limit chỉ áp dụng cho các gói tin thông thường (AUTH, RUN, EDIT, ...).
+        if (type !== TYPE.COLLAB) {
+          // 1. Kiểm tra Rate Limit (chỉ cho non-COLLAB)
+          if (!limiter.consume()) {
+            const now = Date.now();
+            if (now - lastSpamLogAt >= 5000) {
+              lastSpamLogAt = now;
+              _log("warn", `[Gateway] 🛑 SPAM BLOCK: ${clientId}`);
+            }
+            clientSocket.write(
+              buildFrame(TYPE.ERR, "gateway", "Rate limit exceeded"),
+            );
+            return;
+          }
+        }
+
         // 3. Giải mã AES-256-GCM
         let plainPayload;
-        try {
-          plainPayload = decryptPayload(payload);
-        } catch (err) {
-          _log("warn", `[Gateway] Decrypt failed: ${err.message}`);
-          clientSocket.write(buildFrame(TYPE.ERR, "gateway", "Decrypt failed"));
-          clientSocket.destroy();
-          return;
+        if (type === TYPE.COLLAB) {
+          plainPayload = payload;
+        } else {
+          try {
+            plainPayload = decryptPayload(payload);
+          } catch (err) {
+            _log("warn", `[Gateway] Decrypt failed: ${err.message}`);
+            clientSocket.write(buildFrame(TYPE.ERR, "gateway", "Decrypt failed"));
+            clientSocket.destroy();
+            return;
+          }
         }
 
         const parsed = parsePayload(plainPayload);
@@ -531,6 +541,11 @@ class GatewayServer {
                   ),
                 );
               }
+
+              // Thông báo số lượng thành viên trong room cho tất cả clients
+              if (session.roomId) {
+                this._broadcastRoomMemberCount(session.roomId);
+              }
             } catch (err) {
               _log(
                 "error",
@@ -575,6 +590,18 @@ class GatewayServer {
           case TYPE.INPUT:
             this._routeInputToWorker(plainPayload);
             break;
+          case TYPE.COLLAB:
+            // Relay raw collab frames to other clients in the same room
+            if (session.roomId) {
+              for (const [otherClientId, info] of this.activeClients.entries()) {
+                if (otherClientId !== clientId && String(info.session.roomId) === String(session.roomId)) {
+                  if (info.socket && !info.socket.destroyed) {
+                    info.socket.write(rawFrame); // Relay exactly as is
+                  }
+                }
+              }
+            }
+            break;
           case TYPE.EDIT:
           case TYPE.CURSOR:
           case TYPE.CHAT:
@@ -598,13 +625,46 @@ class GatewayServer {
     );
 
     clientSocket.on("close", () => {
+      const disconnectedRoomId = session.roomId;
       this.activeClients.delete(clientId);
       _log(
         "debug",
         `[Gateway] 👋 Client ngắt kết nối: ${clientId} (clients=${this.activeClients.size})`,
       );
       if (workerSocket && !workerSocket.destroyed) workerSocket.destroy();
+
+      // Thông báo cho các client còn lại trong room
+      if (disconnectedRoomId) {
+        this._broadcastRoomMemberCount(disconnectedRoomId);
+      }
     });
+  }
+
+  // ─── ROOM MEMBER COUNT NOTIFICATION ────────────────────────────
+  // Gửi cho mỗi client trong room biết có bao nhiêu người KHÁC đang ở cùng.
+  // Dùng COLLAB frame với sub-type 4 (ROOM_EVENT), payload = [4, count].
+  // Client dùng thông tin này để bật/tắt cờ isInCollabRoom.
+  _broadcastRoomMemberCount(roomId) {
+    if (!roomId) return;
+
+    const members = [];
+    for (const [cid, info] of this.activeClients.entries()) {
+      if (info.session && info.session.authed && String(info.session.roomId) === String(roomId)) {
+        members.push(info.socket);
+      }
+    }
+
+    const totalInRoom = members.length;
+    for (const sock of members) {
+      if (!sock || sock.destroyed) continue;
+      const otherCount = totalInRoom - 1; // Số người KHÁC (không tính chính mình)
+      const roomEventData = Buffer.alloc(2);
+      roomEventData[0] = 4; // Sub-type: ROOM_EVENT
+      roomEventData[1] = otherCount;
+      const frame = buildFrame(TYPE.COLLAB, "room", roomEventData, { encrypt: false });
+      sock.write(frame);
+    }
+    _log("info", `[Gateway] Room ${roomId}: ${totalInRoom} member(s), broadcast sent`);
   }
 
   // ─── ĐIỀU PHỐI XUỐNG WORKER CLUSTER ─────────────────────────

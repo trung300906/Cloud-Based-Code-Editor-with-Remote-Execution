@@ -13,6 +13,7 @@ const TYPE = {
   INPUT: 0x07,
   LINT: 0x08,
   FS_EVENT: 0x09,
+  COLLAB: 0x0a,
   PING: 0xff,
 };
 
@@ -21,12 +22,17 @@ function encodePayload(requestId, data) {
   const idLenBuf = Buffer.alloc(4);
   idLenBuf.writeUInt32BE(idBuf.length, 0);
 
-  const dataBuf = Buffer.isBuffer(data)
-    ? data
-    : Buffer.from(
-        typeof data === "object" ? JSON.stringify(data) : String(data ?? ""),
-        "utf8",
-      );
+  let dataBuf;
+  if (Buffer.isBuffer(data)) {
+    dataBuf = data;
+  } else if (data instanceof Uint8Array || ArrayBuffer.isView(data) || data instanceof ArrayBuffer) {
+    dataBuf = Buffer.from(data);
+  } else {
+    dataBuf = Buffer.from(
+      typeof data === "object" ? JSON.stringify(data) : String(data ?? ""),
+      "utf8",
+    );
+  }
 
   return Buffer.concat([idLenBuf, idBuf, dataBuf]);
 }
