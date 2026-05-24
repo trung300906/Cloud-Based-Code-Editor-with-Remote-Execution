@@ -12,7 +12,7 @@
   "license": "ISC",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.879.0",
-    "dockerode": "^4.0.10",
+    "dockerode": "^5.0.0",
     "fs-extra": "^11.3.0",
     "tar-fs": "^3.1.2",
     "tar-stream": "^3.1.8"
