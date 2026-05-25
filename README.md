@@ -1,7 +1,7 @@
 # Project "Cloud-Based IDE"
 
 ## Setup
-dựa vào hệ điều hành của bạn, hãy tự tải node về, khuyến nghị nodejs version 24.16.0 (lts/krypton)(nếu muốn dùng các nodejs version > 24.16.0 thì tự config lại trong package.json của các folder)
+dựa vào hệ điều hành của bạn, hãy tự tải node về, khuyến nghị nodejs version 22.22.3(lts/jod)(nếu muốn dùng các nodejs version > 24.16.0 thì tự config lại trong package.json của các folder)
 
 **lưu ý: các version nodejs > 24.16.0 có thể không tương thích hoặc hành vi lạ, không khuyến khích sử dụng**
 
