@@ -68,8 +68,9 @@ window.addEventListener("DOMContentLoaded", async () => {
       
       let entryPoint = "";
       if (state.currentFilePath && state.rootFolderPath) {
-        entryPoint = state.currentFilePath.replace(state.rootFolderPath + "/", "");
-        entryPoint = entryPoint.replace(/\\/g, "/");
+        const normFilePath = state.currentFilePath.replace(/\\/g, "/");
+        const normRootPath = state.rootFolderPath.replace(/\\/g, "/");
+        entryPoint = normFilePath.replace(normRootPath + "/", "");
       }
 
       lockTerminalForExecution(lang);
