@@ -22,6 +22,7 @@ let onTerminalOutput = null;
 let onLintOutput = null;
 let onFsEvent = null;
 let onCollabEvent = null;
+let onKickNotice = null;
 
 const client = new net.Socket();
 
@@ -128,6 +129,13 @@ client.on("data", (chunk) => {
       continue;
     }
 
+    if (parsed.type === TYPE.KICK_NOTICE) {
+      // KICK_NOTICE được Gateway gửi unencrypted — decode thẳng không decrypt
+      const decoded = decodeFramePayload(parsed.type, parsed.payload, { decrypt: false });
+      if (decoded) handleKickNotice(decoded.data);
+      continue;
+    }
+
     const decoded = decodeFramePayload(parsed.type, parsed.payload, {
       decrypt: parsed.type !== TYPE.PING,
     });
@@ -145,6 +153,7 @@ function dispatch(type, requestId, data) {
   if (type === TYPE.ERR) handleError(requestId, data);
   if (type === TYPE.LINT) handleLint(requestId, data);
   if (type === TYPE.FS_EVENT) handleFsEvent(data);
+  // KICK_NOTICE đã được xử lý trực tiếp trong data handler (unencrypted path)
 }
 
 function startHeartbeat() {
@@ -182,12 +191,21 @@ function setCollabCallback(cb) {
   onCollabEvent = cb;
 }
 
+function setKickCallback(cb) {
+  onKickNotice = cb;
+}
+
 function handleLint(requestId, data) {
   if (onLintOutput) onLintOutput(data);
 }
 
 function handleFsEvent(data) {
   if (onFsEvent) onFsEvent(data);
+}
+
+function handleKickNotice(data) {
+  console.warn("[TCP Client] 🚫 Kicked from room by owner!", data);
+  if (onKickNotice) onKickNotice(data);
 }
 
 function handleResult(requestId, data) {
@@ -226,4 +244,4 @@ if (process.env.TCP_AUTO_CONNECT !== "0") {
   connect();
 }
 
-module.exports = { send, sendAuth, sendCollab, setSession, connect, TYPE, setTerminalCallback, setLintCallback, setFsEventCallback, setCollabCallback };
+module.exports = { send, sendAuth, sendCollab, setSession, connect, TYPE, setTerminalCallback, setLintCallback, setFsEventCallback, setCollabCallback, setKickCallback };

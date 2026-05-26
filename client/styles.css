@@ -1649,3 +1649,136 @@ body.light-mode .toast-message {
   left: -4px;
   top: -5px;
 }
+
+/* ── Room Members Panel ── */
+.room-members-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  background: rgba(0, 122, 204, 0.12);
+  border: 1px solid rgba(0, 122, 204, 0.3);
+  border-radius: 6px 6px 0 0;
+  margin-bottom: 0;
+}
+
+.room-members-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  color: #7bc8f0;
+  text-transform: uppercase;
+}
+
+.room-members-count {
+  background: #007acc;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 10px;
+  padding: 1px 7px;
+  min-width: 18px;
+  text-align: center;
+  animation: members-pulse 2s infinite;
+}
+
+@keyframes members-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0, 122, 204, 0.5); }
+  50%       { box-shadow: 0 0 0 4px rgba(0, 122, 204, 0); }
+}
+
+.room-members-list {
+  border: 1px solid rgba(0, 122, 204, 0.3);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  max-height: 150px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+.room-members-list::-webkit-scrollbar {
+  width: 4px;
+}
+.room-members-list::-webkit-scrollbar-thumb {
+  background: rgba(0, 122, 204, 0.4);
+  border-radius: 4px;
+}
+
+.room-members-empty {
+  padding: 8px 10px;
+  font-size: 12px;
+  color: #666;
+  text-align: center;
+  font-style: italic;
+}
+
+.room-member-row {
+  display: flex;
+  align-items: center;
+  padding: 5px 8px;
+  gap: 8px;
+  transition: background 0.15s;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+}
+
+.room-member-row:last-child {
+  border-bottom: none;
+}
+
+.room-member-row:hover {
+  background: rgba(255,255,255,0.05);
+}
+
+.room-member-avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #007acc 0%, #1be7ff 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.room-member-name {
+  flex: 1;
+  font-size: 12px;
+  color: #d4d4d4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.room-member-online-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4caf50;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.25);
+}
+
+.kick-btn {
+  background: transparent;
+  border: 1px solid rgba(255, 68, 68, 0.4);
+  color: #ff7070;
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.kick-btn:hover {
+  background: rgba(255, 68, 68, 0.2);
+  border-color: #ff4444;
+  color: #ff4444;
+}
+
+.kick-btn:active {
+  transform: scale(0.95);
+}

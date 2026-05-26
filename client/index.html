@@ -235,6 +235,18 @@
                 </button>
               </div>
             </div>
+
+            <!-- Room Members Panel (only visible to room owner) -->
+            <div id="room-members-panel" style="display: none; margin-top: 10px;">
+              <div class="room-members-header">
+                <span class="room-members-title">👥 Room Members</span>
+                <span class="room-members-count" id="room-members-count">0</span>
+              </div>
+              <div id="room-members-list" class="room-members-list">
+                <div class="room-members-empty">No guests in your room</div>
+              </div>
+            </div>
+
             <div class="popover-actions" style="margin-top: 10px;">
               <input class="form-input" id="join-room-input" type="text" placeholder="Enter Room ID to join..." style="margin-bottom: 8px;" />
               <button class="primary-btn" id="join-room-btn" type="button" style="width: 100%; margin-bottom: 8px;">

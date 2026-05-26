@@ -304,6 +304,65 @@ app.whenReady().then(() => {
       }
     });
 
+    // ── KICK NOTICE: Server đã đuổi user này khỏi phòng ──
+    // QUAN TRỌNG: Xử lý NGAY ở Main Process, không chờ renderer.
+    // Phải reset session trước khi reconnect xảy ra để tránh user2
+    // tự động re-join room sau khi TCP socket bị destroy.
+    tcpClient.setKickCallback((data) => {
+      console.warn("[Main] Received KICK_NOTICE from gateway — force leaving room...", data);
+
+      try {
+        // 1. Reset TCP session roomId NGAY LẬP TỨC để khi reconnect không re-join room cũ
+        if (originalProjectId) {
+          tcpClient.setSession({ roomId: String(originalProjectId) });
+        } else {
+          tcpClient.setSession({ roomId: "default" });
+        }
+
+        // 2. Dọn dẹp state Main Process (giống room:leave handler)
+        const guestFolderToClean = (currentWorkspaceRoot && currentWorkspaceRoot.includes("cbcode_guest_"))
+          ? currentWorkspaceRoot
+          : null;
+
+        currentProjectId = originalProjectId;
+        currentWorkspaceRoot = originalWorkspaceRoot;
+        isInCollabRoom = false;
+
+        // 3. Restore sidebar về workspace gốc
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          if (currentWorkspaceRoot && fs.existsSync(currentWorkspaceRoot)) {
+            const treeData = buildTree(currentWorkspaceRoot);
+            mainWindow.webContents.send("folder-opened", {
+              items: treeData,
+              folderPath: currentWorkspaceRoot
+            });
+          } else {
+            mainWindow.webContents.send("folder-opened", { items: [], folderPath: null });
+          }
+
+          // 4. Thông báo renderer để dọn UI + toast + resetCollab()
+          mainWindow.webContents.send("kick-notice", data);
+        }
+
+        // 5. Xóa thư mục guest tạm
+        if (guestFolderToClean) {
+          setTimeout(() => {
+            try {
+              fs.rmSync(guestFolderToClean, { recursive: true, force: true, maxRetries: 3 });
+            } catch (e) {
+              fs.promises.rm(guestFolderToClean, { recursive: true, force: true }).catch(() => {});
+            }
+          }, 1000);
+        }
+      } catch (err) {
+        console.error("[Main] KICK_NOTICE handler error:", err);
+        // Dù lỗi, vẫn thông báo renderer
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("kick-notice", data);
+        }
+      }
+    });
+
   tcpClient.setFsEventCallback(async (data) => {
     try {
       const event = typeof data === "string" ? JSON.parse(data) : data;

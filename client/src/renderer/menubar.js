@@ -676,6 +676,8 @@ export async function initCustomMenubar() {
           if (window.electronAPI?.loginSuccess) {
             window.electronAPI.loginSuccess(payload.token);
           }
+          // Start live room-members polling for the owner
+          if (typeof startMembersPolling === "function") startMembersPolling();
         } catch (err) {
           if (loginStatus) {
             loginStatus.textContent = err?.message || "Network error";
@@ -746,6 +748,8 @@ export async function initCustomMenubar() {
       };
       await saveUserProfile(currentProfile);
       renderUserProfile(currentProfile);
+      // Stop room-members polling on logout
+      if (typeof stopMembersPolling === "function") stopMembersPolling();
       if (loginStatus) {
         loginStatus.textContent = "Logged out";
         loginStatus.classList.add("is-ok");
@@ -805,7 +809,145 @@ export async function initCustomMenubar() {
       });
     }
 
-    // ─── JOIN / LEAVE ROOM LOGIC ───
+    // ─── ROOM MEMBERS PANEL (for owner) ───
+    const roomMembersPanel = userPopover.querySelector("#room-members-panel");
+    const roomMembersList = userPopover.querySelector("#room-members-list");
+    const roomMembersCount = userPopover.querySelector("#room-members-count");
+
+    const MEMBERS_POLL_INTERVAL = 5000; // 5 seconds
+    let membersPoller = null;
+
+    async function fetchRoomMembers() {
+      const token = currentProfile?.token;
+      if (!token || !currentProfile?.loggedIn) return;
+
+      try {
+        const response = await fetch("http://100.124.23.95:3000/api/room/members", {
+          method: "GET",
+          headers: { "Authorization": `Bearer ${token}` }
+        });
+        if (!response.ok) return;
+
+        const payload = await response.json();
+        const members = payload.members || [];
+
+        // Update count badge
+        if (roomMembersCount) {
+          roomMembersCount.textContent = String(members.length);
+        }
+
+        // Show/hide panel based on whether we have guests
+        if (roomMembersPanel) {
+          roomMembersPanel.style.display = "block";
+        }
+
+        // Render member list
+        if (roomMembersList) {
+          if (members.length === 0) {
+            roomMembersList.innerHTML = "<div class=\"room-members-empty\">No guests in your room</div>";
+          } else {
+            roomMembersList.innerHTML = members.map(m => `
+              <div class="room-member-row">
+                <div class="room-member-avatar">${m.username.slice(0, 2).toUpperCase()}</div>
+                <span class="room-member-name">${escapeHtml(m.username)}</span>
+                <div class="room-member-online-dot"></div>
+                <button class="kick-btn" data-guest-id="${m.id}" data-guest-name="${escapeHtml(m.username)}" title="Kick ${escapeHtml(m.username)} from room">Kick</button>
+              </div>
+            `).join("");
+
+            // Attach kick event listeners
+            roomMembersList.querySelectorAll(".kick-btn").forEach(btn => {
+              btn.addEventListener("click", async (e) => {
+                e.stopPropagation();
+                const guestId = btn.dataset.guestId;
+                const guestName = btn.dataset.guestName;
+                const confirmed = confirm(`Kick "${guestName}" out of your room?`);
+                if (!confirmed) return;
+
+                btn.textContent = "...";
+                btn.disabled = true;
+
+                try {
+                  const kickResp = await fetch("http://100.124.23.95:3000/api/room/kick", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      "Authorization": `Bearer ${currentProfile.token}`
+                    },
+                    body: JSON.stringify({ guest_id: Number(guestId) })
+                  });
+                  const kickPayload = await kickResp.json();
+                  if (kickResp.ok) {
+                    if (window.showToast) {
+                      window.showToast(`"${guestName}" đã bị kick khỏi phòng`, window.ToastType.SUCCESS);
+                    }
+                    fetchRoomMembers(); // refresh immediately
+                  } else {
+                    if (window.showToast) {
+                      window.showToast(kickPayload.error || "Kick failed", window.ToastType.ERROR);
+                    }
+                    btn.textContent = "Kick";
+                    btn.disabled = false;
+                  }
+                } catch (err) {
+                  if (window.showToast) {
+                    window.showToast("Network error: " + err.message, window.ToastType.ERROR);
+                  }
+                  btn.textContent = "Kick";
+                  btn.disabled = false;
+                }
+              });
+            });
+          }
+        }
+      } catch (_) {
+        // Silently ignore network errors in background poll
+      }
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    function startMembersPolling() {
+      if (membersPoller) return; // already running
+      fetchRoomMembers(); // immediate first fetch
+      membersPoller = setInterval(fetchRoomMembers, MEMBERS_POLL_INTERVAL);
+    }
+
+    function stopMembersPolling() {
+      if (membersPoller) {
+        clearInterval(membersPoller);
+        membersPoller = null;
+      }
+      // Hide panel and reset
+      if (roomMembersPanel) roomMembersPanel.style.display = "none";
+      if (roomMembersList) roomMembersList.innerHTML = "<div class=\"room-members-empty\">No guests in your room</div>";
+      if (roomMembersCount) roomMembersCount.textContent = "0";
+    }
+
+    // Start polling when logged in; stop on logout
+    // Wrap renderUserProfile to also manage polling
+    const _origRenderUserProfile = renderUserProfile;
+    function renderUserProfileWithPolling(profile) {
+      _origRenderUserProfile(profile);
+      if (profile?.loggedIn) {
+        startMembersPolling();
+      } else {
+        stopMembersPolling();
+      }
+    }
+    // Replace all renderUserProfile calls going forward
+    // (already called above with original, fine for first render)
+    // Hook into the login success path:
+    if (currentProfile?.loggedIn) {
+      startMembersPolling();
+    }
+
     if (joinRoomBtn) {
       joinRoomBtn.addEventListener("click", async () => {
         const token = currentProfile?.token;

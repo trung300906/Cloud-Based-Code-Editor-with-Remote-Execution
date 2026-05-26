@@ -180,3 +180,33 @@ if (window.electronAPI.onLintResult) {
     }
   });
 }
+
+// ─── KICK NOTICE: Owner đã kick user này khỏi phòng ───
+// Main Process đã xử lý: reset tcpClient session, dọn guest folder, restore sidebar.
+// Renderer chỉ cần: reset CRDT collab + dọn UI join/leave buttons + hiện toast.
+if (window.electronAPI && window.electronAPI.onKickNotice) {
+  window.electronAPI.onKickNotice(() => {
+    // 1. Toast thông báo
+    if (window.showToast) {
+      window.showToast("Bạn đã bị kick khỏi phòng bởi chủ phòng!", window.ToastType?.ERROR || "error", "Bị kick", 6000);
+    }
+
+    // 2. Reset CRDT collab state (QUAN TRỌNG: phải làm TRƯỚC khi dọn UI)
+    state.isInCollabRoom = false;
+    resetCollab();
+
+    // 3. Dọn UI join/leave room buttons + active room row
+    const leaveBtn = document.getElementById("leave-room-btn");
+    const joinBtn = document.getElementById("join-room-btn");
+    const joinInput = document.getElementById("join-room-input");
+    const activeRoomRow = document.getElementById("active-room-row");
+
+    if (leaveBtn) leaveBtn.style.display = "none";
+    if (joinBtn) { joinBtn.style.display = "block"; joinBtn.textContent = "Join Room"; }
+    if (joinInput) { joinInput.style.display = "block"; joinInput.value = ""; }
+    if (activeRoomRow) activeRoomRow.style.display = "none";
+
+    console.log("[Renderer] Kicked from room — state cleaned up.");
+  });
+}
+

@@ -65,6 +65,7 @@ const TYPE = {
   LINT: 0x08,
   FS_EVENT: 0x09,
   COLLAB: 0x0a,
+  KICK_NOTICE: 0x0b,
   PING: 0xff,
 };
 
@@ -202,6 +203,35 @@ class GatewayServer {
         }
       });
       _log("info", "[Gateway] Subscribed to project_fs_events");
+
+      // Subscribe to kick events — force-disconnect the kicked user's TCP socket
+      const kickSubClient = redisClient.duplicate();
+      await kickSubClient.connect();
+      await kickSubClient.subscribe("room_kick_events", (message) => {
+        try {
+          const event = JSON.parse(message);
+          const kickedUserId = String(event.kicked_user_id);
+          for (const [clientId, info] of this.activeClients.entries()) {
+            if (info.session && String(info.session.userId) === kickedUserId) {
+              _log("info", `[Gateway] Kicking user ${kickedUserId} (clientId=${clientId}) due to room_kick_events`);
+              if (info.socket && !info.socket.destroyed) {
+              // Send a notification frame before closing so the client can show a toast
+                // Gửi UNENCRYPTED để đảm bảo client nhận được dù crypto key có vấn đề
+                try {
+                  info.socket.write(buildFrame(TYPE.KICK_NOTICE, "gateway", JSON.stringify({ reason: "kicked_by_owner" }), { encrypt: false }));
+                } catch (_) {}
+                // Chờ lâu hơn (500ms) để client kịp xử lý frame trước khi socket bị destroy
+                setTimeout(() => {
+                  try { info.socket.destroy(); } catch (_) {}
+                }, 500);
+              }
+            }
+          }
+        } catch (e) {
+          _log("warn", `[Gateway] Kick Event error: ${e.message}`);
+        }
+      });
+      _log("info", "[Gateway] Subscribed to room_kick_events");
     } catch (err) {
       _log("error", `[Gateway] Redis connection failed: ${err.message || err}`);
     }
@@ -517,6 +547,7 @@ class GatewayServer {
               // f. Accept connection
               session.authed = true;
               session.token = token;
+              session.userId = userId;
               session.roomId =
                 typeof authData?.roomId === "string" ? authData.roomId : "";
               session.fileState =

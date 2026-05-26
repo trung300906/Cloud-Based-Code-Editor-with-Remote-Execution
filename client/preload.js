@@ -67,6 +67,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   triggerConflict: (data) => ipcRenderer.invoke("sync:trigger-conflict", data),
   safePullAndReload: (data) => ipcRenderer.invoke("sync:safe-pull-and-reload", data),
   onReloadTabContent: (cb) => ipcRenderer.on("reload-tab-content", (e, data) => cb(data)),
+  onKickNotice: (cb) => ipcRenderer.on("kick-notice", (e, data) => cb(data)),
 
   // Terminal & Run Code
   sendRunCode: (data) => ipcRenderer.send('run-code', data),

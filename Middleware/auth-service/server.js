@@ -831,6 +831,96 @@ app.post("/api/room/leave", authenticateToken, async (req, res) => {
   }
 });
 
+// ---- GET /api/room/members — Owner xem ai đang trong phòng của mình ----
+app.get("/api/room/members", authenticateToken, async (req, res) => {
+  try {
+    const userId = Number(req.user.sub);
+
+    // Lấy room_id của user này (chủ phòng)
+    const result = await pool.query(`SELECT room_id FROM users WHERE id = $1 LIMIT 1`, [userId]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "user not found" });
+    }
+    const roomId = result.rows[0].room_id;
+
+    // Lấy danh sách guest IDs trong phòng này
+    const guestIds = await redisClient.sMembers(`room:${roomId}:guests`);
+    if (!guestIds || guestIds.length === 0) {
+      return res.status(200).json({ members: [] });
+    }
+
+    // Lấy username của từng guest từ Postgres
+    const numericIds = guestIds.map(Number).filter(id => !isNaN(id));
+    if (numericIds.length === 0) {
+      return res.status(200).json({ members: [] });
+    }
+
+    const usersResult = await pool.query(
+      `SELECT id, username FROM users WHERE id = ANY($1::int[])`,
+      [numericIds]
+    );
+
+    const members = usersResult.rows.map(u => ({ id: u.id, username: u.username }));
+    return res.status(200).json({ members, room_id: roomId });
+  } catch (err) {
+    console.error("[API] GET /api/room/members error:", err.message || err);
+    return res.status(500).json({ error: "internal error" });
+  }
+});
+
+// ---- POST /api/room/kick — Owner kick một guest ra khỏi phòng ----
+app.post("/api/room/kick", authenticateToken, async (req, res) => {
+  try {
+    const ownerId = Number(req.user.sub);
+    const { guest_id } = req.body || {};
+
+    if (!guest_id) {
+      return res.status(400).json({ error: "guest_id required" });
+    }
+
+    const guestIdNum = Number(guest_id);
+    if (isNaN(guestIdNum)) {
+      return res.status(400).json({ error: "guest_id must be a number" });
+    }
+
+    // Không thể kick chính mình
+    if (guestIdNum === ownerId) {
+      return res.status(400).json({ error: "cannot kick yourself" });
+    }
+
+    // Lấy room_id của chủ phòng
+    const ownerResult = await pool.query(`SELECT room_id FROM users WHERE id = $1 LIMIT 1`, [ownerId]);
+    if (ownerResult.rowCount === 0) {
+      return res.status(404).json({ error: "owner not found" });
+    }
+    const roomId = ownerResult.rows[0].room_id;
+
+    // Kiểm tra guest có trong phòng không
+    const isMember = await redisClient.sIsMember(`room:${roomId}:guests`, String(guestIdNum));
+    if (!isMember) {
+      return res.status(404).json({ error: "guest not found in your room" });
+    }
+
+    // Xóa mapping của guest
+    await redisClient.del(`user:room_mapping:${guestIdNum}`);
+    // Xóa khỏi danh sách guests của phòng
+    await redisClient.sRem(`room:${roomId}:guests`, String(guestIdNum));
+
+    // Thông báo qua Redis pub/sub để Gateway có thể ngắt kết nối guest
+    await redisClient.publish("room_kick_events", JSON.stringify({
+      room_id: roomId,
+      kicked_user_id: guestIdNum,
+      kicked_by: ownerId,
+    }));
+
+    console.log(`[API] Owner ${ownerId} kicked guest ${guestIdNum} from room ${roomId}`);
+    return res.status(200).json({ message: "Guest kicked successfully" });
+  } catch (err) {
+    console.error("[API] POST /api/room/kick error:", err.message || err);
+    return res.status(500).json({ error: "internal error" });
+  }
+});
+
 // Rotate Room IDs every 15 minutes, skipping rooms with active guests
 async function rotateRoomIds() {
   try {

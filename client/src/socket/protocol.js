@@ -14,6 +14,7 @@ const TYPE = {
   LINT: 0x08,
   FS_EVENT: 0x09,
   COLLAB: 0x0a,
+  KICK_NOTICE: 0x0b,
   PING: 0xff,
 };
 

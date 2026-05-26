@@ -40,9 +40,9 @@ function detachDocListeners() {
   if (_docUpdateListener && _listenerYdoc) {
     try { _listenerYdoc.off("update", _docUpdateListener); } catch (_) {}
   }
-  // Awareness dùng lib0/observable khác Yjs doc.
-  // Không gọi .off() trực tiếp vì nó hay warn "handler doesn't exist".
-  // Thay vào đó bỏ qua — khi awareness cũ bị GC, listener sẽ mất theo.
+  if (_awarenessUpdateListener && _listenerAwareness) {
+    try { _listenerAwareness.off("update", _awarenessUpdateListener); } catch (_) {}
+  }
   _docUpdateListener = null;
   _awarenessUpdateListener = null;
   _listenerYdoc = null;
