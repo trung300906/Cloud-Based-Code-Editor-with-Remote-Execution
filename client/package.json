@@ -5,7 +5,7 @@
   "description": "Cloud-Based Code Editor with Remote Execution",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "electron --trace-deprecation .",
     "dist": "electron-builder"
   },
   "repository": "https://github.com/electron/minimal-repro",
