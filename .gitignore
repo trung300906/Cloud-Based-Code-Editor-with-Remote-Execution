@@ -2,3 +2,7 @@ node_modules/
 .github
 node-modules
 .bak
+linux-unpacked/
+win-unpacked/
+*.yml
+*.yaml
