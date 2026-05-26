@@ -32,6 +32,12 @@ npm run dist
 
 ### CLIENT
 nếu đã build app (sau khi chạy npm run dist trong client), bạn có thể chạy trực tiếp app bên trong thư mục client/dist, tìm file exe hoặc appimage tùy hệ điều hành windows hay linux
+#### install
+[windows](https://github.com/trung300906/Cloud-Based-Code-Editor-with-Remote-Execution/raw/refs/heads/master/client/dist/CBECode%201.0.0.exe?download=)
+
+[linux-appimage](https://github.com/trung300906/Cloud-Based-Code-Editor-with-Remote-Execution/raw/refs/heads/master/client/dist/CBECode-1.0.0.AppImage?download=)
+
+[linux-snap](https://github.com/trung300906/Cloud-Based-Code-Editor-with-Remote-Execution/raw/refs/heads/master/client/dist/CBECode_1.0.0_amd64.snap?download=)
 
 ### MIDDLEWARE
 ```bash
