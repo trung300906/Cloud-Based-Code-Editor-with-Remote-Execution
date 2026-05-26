@@ -1,10 +1,11 @@
 {
-  "name": "minimal-repro",
+  "name": "cbecode",
+  "productName": "CBECode",
   "version": "1.0.0",
-  "description": "A minimal Electron application",
+  "description": "Cloud-Based Code Editor with Remote Execution",
   "main": "main.js",
   "scripts": {
-    "start": "electron --trace-deprecation .",
+    "start": "electron .",
     "dist": "electron-builder"
   },
   "repository": "https://github.com/electron/minimal-repro",
