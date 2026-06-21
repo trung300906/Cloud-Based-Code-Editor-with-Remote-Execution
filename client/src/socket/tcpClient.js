@@ -6,7 +6,7 @@ const { SessionManager } = require("./sessionManager.js");
 const { TYPE, buildFrame, parseFrame, decodeFramePayload } = require("./protocol.js");
 const { signJwt } = require("./cryptoClient.js");
 
-const DEFAULT_GATEWAY_HOST = process.env.GATEWAY_HOST || "100.124.23.95";
+const DEFAULT_GATEWAY_HOST = process.env.GATEWAY_HOST || "100.84.67.110";
 const DEFAULT_GATEWAY_PORT = Number(process.env.GATEWAY_PORT || 8080);
 const DEFAULT_ROOM_ID = process.env.CLIENT_ROOM_ID || "default";
 const DEFAULT_SUB = process.env.CLIENT_SUB || "";

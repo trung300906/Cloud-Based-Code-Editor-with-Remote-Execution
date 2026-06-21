@@ -4,11 +4,14 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self' https://cdnjs.cloudflare.com https://esm.sh; connect-src 'self' http://100.124.23.95:3000; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdnjs.cloudflare.com https://esm.sh; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src 'self' data: https://cdnjs.cloudflare.com; img-src 'self' data: blob:; object-src data: blob:; frame-src data: blob:; worker-src 'self' blob:;"
+      content="default-src 'self' https://cdnjs.cloudflare.com https://esm.sh; connect-src 'self' http://100.84.67.110:3000; script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdnjs.cloudflare.com https://esm.sh; style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; font-src 'self' data: https://cdnjs.cloudflare.com; img-src 'self' data: blob:; object-src data: blob:; frame-src data: blob:; worker-src 'self' blob:;"
     />
     <link href="./styles.css" rel="stylesheet" />
     <link href="./node_modules/xterm/css/xterm.css" rel="stylesheet" />
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/devicon/2.16.0/devicon.min.css" rel="stylesheet" />
+    <link
+      href="https://cdnjs.cloudflare.com/ajax/libs/devicon/2.16.0/devicon.min.css"
+      rel="stylesheet"
+    />
     <title>CBCode</title>
   </head>
   <body>
@@ -132,7 +135,13 @@
         <select id="lang-select">
           <option value="cpp">C++</option>
         </select>
-        <button id="toggle-terminal-btn" class="ghost-btn" style="margin-right: 5px; color: #ccc;">🖥️ Terminal</button>
+        <button
+          id="toggle-terminal-btn"
+          class="ghost-btn"
+          style="margin-right: 5px; color: #ccc"
+        >
+          🖥️ Terminal
+        </button>
         <button id="submit-btn">🟢 Run Code</button>
         <button id="user-btn" class="menubar-chip" title="User">US</button>
         <button id="settings-btn" class="menubar-chip" title="Settings">
@@ -210,7 +219,12 @@
             <div class="user-kv">
               <div class="kv-row">
                 <span class="kv-key">My Room ID</span>
-                <span class="kv-value" id="user-room" style="font-family: monospace;">---</span>
+                <span
+                  class="kv-value"
+                  id="user-room"
+                  style="font-family: monospace"
+                  >---</span
+                >
                 <button
                   class="ghost-btn mini-btn"
                   id="copy-room-btn"
@@ -219,9 +233,24 @@
                   Copy
                 </button>
               </div>
-              <div class="kv-row" id="active-room-row" style="display: none; background: rgba(255, 200, 0, 0.2); padding: 4px; border-radius: 4px; margin-top: 4px;">
-                <span class="kv-key" style="color: #ffcc00;">Active Room</span>
-                <span class="kv-value" id="active-room-host" style="font-weight: bold; color: #ffcc00;">---</span>
+              <div
+                class="kv-row"
+                id="active-room-row"
+                style="
+                  display: none;
+                  background: rgba(255, 200, 0, 0.2);
+                  padding: 4px;
+                  border-radius: 4px;
+                  margin-top: 4px;
+                "
+              >
+                <span class="kv-key" style="color: #ffcc00">Active Room</span>
+                <span
+                  class="kv-value"
+                  id="active-room-host"
+                  style="font-weight: bold; color: #ffcc00"
+                  >---</span
+                >
               </div>
               <div class="kv-row">
                 <span class="kv-key">Token</span>
@@ -237,22 +266,49 @@
             </div>
 
             <!-- Room Members Panel (only visible to room owner) -->
-            <div id="room-members-panel" style="display: none; margin-top: 10px;">
+            <div
+              id="room-members-panel"
+              style="display: none; margin-top: 10px"
+            >
               <div class="room-members-header">
                 <span class="room-members-title">👥 Room Members</span>
-                <span class="room-members-count" id="room-members-count">0</span>
+                <span class="room-members-count" id="room-members-count"
+                  >0</span
+                >
               </div>
               <div id="room-members-list" class="room-members-list">
                 <div class="room-members-empty">No guests in your room</div>
               </div>
             </div>
 
-            <div class="popover-actions" style="margin-top: 10px;">
-              <input class="form-input" id="join-room-input" type="text" placeholder="Enter Room ID to join..." style="margin-bottom: 8px;" />
-              <button class="primary-btn" id="join-room-btn" type="button" style="width: 100%; margin-bottom: 8px;">
+            <div class="popover-actions" style="margin-top: 10px">
+              <input
+                class="form-input"
+                id="join-room-input"
+                type="text"
+                placeholder="Enter Room ID to join..."
+                style="margin-bottom: 8px"
+              />
+              <button
+                class="primary-btn"
+                id="join-room-btn"
+                type="button"
+                style="width: 100%; margin-bottom: 8px"
+              >
                 Join Room
               </button>
-              <button class="ghost-btn" id="leave-room-btn" type="button" style="width: 100%; display: none; margin-bottom: 8px; color: #ff4444; border-color: #ff4444;">
+              <button
+                class="ghost-btn"
+                id="leave-room-btn"
+                type="button"
+                style="
+                  width: 100%;
+                  display: none;
+                  margin-bottom: 8px;
+                  color: #ff4444;
+                  border-color: #ff4444;
+                "
+              >
                 Leave Room
               </button>
             </div>
@@ -374,7 +430,17 @@
       <div class="main-editor" id="main-editor">
         <!-- Editor panes created dynamically by JS -->
       </div>
-      <div id="diff-editor-container" style="display: none; flex: 1; flex-direction: column; min-width: 0; min-height: 0; background: #1e1e1e;"></div>
+      <div
+        id="diff-editor-container"
+        style="
+          display: none;
+          flex: 1;
+          flex-direction: column;
+          min-width: 0;
+          min-height: 0;
+          background: #1e1e1e;
+        "
+      ></div>
 
       <div class="resize-handle" id="resize-handle"></div>
       <div class="sidebar">
@@ -385,29 +451,125 @@
       </div>
     </div>
 
-    <div class="resize-handle-horizontal" id="terminal-resize-handle" style="cursor: row-resize; height: 4px; background: #333; width: 100%; display: none;"></div>
-    <div id="terminal-wrapper" style="display: none; height: 200px; background: #000; flex-direction: column;">
-      <div id="terminal-header" style="height: 30px; background: #1e1e1e; display: flex; align-items: center; padding: 0 10px; border-bottom: 1px solid #333; gap: 8px; flex-shrink: 0;">
-        <span style="color: #ccc; font-size: 12px; font-weight: bold;">TERMINAL</span>
-        <select id="terminal-select" class="form-input" style="width: 150px; height: 22px; padding: 0 5px; font-size: 12px;"></select>
-        <button id="terminal-add-btn" class="ghost-btn mini-btn" title="New Terminal" style="padding: 0 6px;">+</button>
-        <button id="terminal-kill-btn" class="ghost-btn mini-btn" title="Kill Terminal" style="padding: 0 6px; color: #ff5555; border-color: transparent;">🗑</button>
-        <div style="flex: 1;"></div>
-        <button id="terminal-close-btn" class="ghost-btn mini-btn" title="Hide Panel" style="padding: 0 6px; border-color: transparent;">✕</button>
+    <div
+      class="resize-handle-horizontal"
+      id="terminal-resize-handle"
+      style="
+        cursor: row-resize;
+        height: 4px;
+        background: #333;
+        width: 100%;
+        display: none;
+      "
+    ></div>
+    <div
+      id="terminal-wrapper"
+      style="
+        display: none;
+        height: 200px;
+        background: #000;
+        flex-direction: column;
+      "
+    >
+      <div
+        id="terminal-header"
+        style="
+          height: 30px;
+          background: #1e1e1e;
+          display: flex;
+          align-items: center;
+          padding: 0 10px;
+          border-bottom: 1px solid #333;
+          gap: 8px;
+          flex-shrink: 0;
+        "
+      >
+        <span style="color: #ccc; font-size: 12px; font-weight: bold"
+          >TERMINAL</span
+        >
+        <select
+          id="terminal-select"
+          class="form-input"
+          style="width: 150px; height: 22px; padding: 0 5px; font-size: 12px"
+        ></select>
+        <button
+          id="terminal-add-btn"
+          class="ghost-btn mini-btn"
+          title="New Terminal"
+          style="padding: 0 6px"
+        >
+          +
+        </button>
+        <button
+          id="terminal-kill-btn"
+          class="ghost-btn mini-btn"
+          title="Kill Terminal"
+          style="padding: 0 6px; color: #ff5555; border-color: transparent"
+        >
+          🗑
+        </button>
+        <div style="flex: 1"></div>
+        <button
+          id="terminal-close-btn"
+          class="ghost-btn mini-btn"
+          title="Hide Panel"
+          style="padding: 0 6px; border-color: transparent"
+        >
+          ✕
+        </button>
       </div>
-      <div id="terminal-container" style="flex: 1; position: relative; padding: 5px; overflow: hidden;"></div>
+      <div
+        id="terminal-container"
+        style="flex: 1; position: relative; padding: 5px; overflow: hidden"
+      ></div>
     </div>
 
     <!-- Modal cho việc chọn Workspace khi Join Room -->
-    <div id="room-workspace-modal" class="modal-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.6); z-index: 9999; justify-content: center; align-items: center;">
-      <div class="modal-content" style="background: #252526; padding: 20px; border-radius: 8px; width: 400px; color: #fff; box-shadow: 0 4px 12px rgba(0,0,0,0.5);">
-        <h3 style="margin-top: 0;">Select Workspace</h3>
-        <p style="color: #ccc; font-size: 13px;">You joined a room. Please select a workspace to load:</p>
-        <div id="room-workspace-list" style="max-height: 200px; overflow-y: auto; margin-bottom: 15px;">
+    <div
+      id="room-workspace-modal"
+      class="modal-overlay"
+      style="
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.6);
+        z-index: 9999;
+        justify-content: center;
+        align-items: center;
+      "
+    >
+      <div
+        class="modal-content"
+        style="
+          background: #252526;
+          padding: 20px;
+          border-radius: 8px;
+          width: 400px;
+          color: #fff;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+        "
+      >
+        <h3 style="margin-top: 0">Select Workspace</h3>
+        <p style="color: #ccc; font-size: 13px">
+          You joined a room. Please select a workspace to load:
+        </p>
+        <div
+          id="room-workspace-list"
+          style="max-height: 200px; overflow-y: auto; margin-bottom: 15px"
+        >
           <!-- Items will be injected here -->
         </div>
-        <div style="text-align: right;">
-          <button id="cancel-join-btn" class="ghost-btn" style="margin-right: 10px;">Cancel</button>
+        <div style="text-align: right">
+          <button
+            id="cancel-join-btn"
+            class="ghost-btn"
+            style="margin-right: 10px"
+          >
+            Cancel
+          </button>
         </div>
       </div>
     </div>

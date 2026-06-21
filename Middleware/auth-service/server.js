@@ -15,7 +15,7 @@ const {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
-  ListObjectsV2Command
+  ListObjectsV2Command,
 } = require("@aws-sdk/client-s3");
 
 const PORT = Number(process.env.AUTH_PORT || 3000);
@@ -41,7 +41,7 @@ redisClient.on("error", (err) => {
 });
 
 const s3 = new S3Client({
-  endpoint: process.env.MINIO_ENDPOINT || "http://100.124.23.95:9000",
+  endpoint: process.env.MINIO_ENDPOINT || "http://100.84.67.110:9000",
   region: "us-east-1",
   credentials: {
     accessKeyId: process.env.MINIO_USER || "minioadmin",
@@ -129,14 +129,18 @@ app.post("/register", async (req, res) => {
 
     // Hash and insert
     const password_hash = await bcrypt.hash(password, 10);
-    const initialRoomId = String(Math.floor(Math.random() * 9000000000000000) + 1000000000000000);
+    const initialRoomId = String(
+      Math.floor(Math.random() * 9000000000000000) + 1000000000000000,
+    );
     const result = await pool.query(
       "INSERT INTO users (username, password_hash, room_id) VALUES ($1, $2, $3) RETURNING id, username, room_id",
       [username, password_hash, initialRoomId],
     );
 
     const user = result.rows[0];
-    return res.status(201).json({ id: user.id, username: user.username, room_id: user.room_id });
+    return res
+      .status(201)
+      .json({ id: user.id, username: user.username, room_id: user.room_id });
   } catch (err) {
     console.error("[AuthService] /register error:", err.message || err);
     return res.status(500).json({ error: "internal error" });
@@ -219,7 +223,9 @@ const authenticateToken = (req, res, next) => {
   try {
     const auth = req.headers.authorization || "";
     if (!auth.startsWith("Bearer ")) {
-      return res.status(401).json({ error: "missing or invalid authorization header" });
+      return res
+        .status(401)
+        .json({ error: "missing or invalid authorization header" });
     }
     const token = auth.slice(7);
     const decoded = jwt.verify(token, JWT_SECRET);
@@ -237,7 +243,10 @@ async function getEffectiveOwnerId(userId) {
     const mapped = await redisClient.get(`user:room_mapping:${userId}`);
     return mapped ? Number(mapped) : Number(userId);
   } catch (err) {
-    console.warn(`[Redis] Error getting room mapping for ${userId}:`, err.message);
+    console.warn(
+      `[Redis] Error getting room mapping for ${userId}:`,
+      err.message,
+    );
     return Number(userId);
   }
 }
@@ -251,13 +260,14 @@ async function streamToString(stream) {
   return Buffer.concat(chunks).toString("utf-8");
 }
 
-
 // ---- GET /api/sync/file — Fetch file from MinIO ----
 app.get("/api/sync/file", authenticateToken, async (req, res) => {
   try {
     const filepath = req.query.filepath;
     if (!filepath) {
-      return res.status(400).json({ error: "filepath query parameter required" });
+      return res
+        .status(400)
+        .json({ error: "filepath query parameter required" });
     }
 
     const key = `${req.user.username}/${filepath}`;
@@ -268,20 +278,24 @@ app.get("/api/sync/file", authenticateToken, async (req, res) => {
       const content = await streamToString(response.Body);
       return res.json({ content });
     } catch (s3Err) {
-      if (s3Err.name === "NoSuchKey" || s3Err.$metadata?.httpStatusCode === 404) {
+      if (
+        s3Err.name === "NoSuchKey" ||
+        s3Err.$metadata?.httpStatusCode === 404
+      ) {
         return res.json({ content: "" });
       }
       throw s3Err;
     }
   } catch (err) {
-    console.error("[AuthService] GET /api/sync/file error:", err.message || err);
+    console.error(
+      "[AuthService] GET /api/sync/file error:",
+      err.message || err,
+    );
     return res.status(500).json({ error: "internal error" });
   }
 });
 
- 
 // Phase 1 — OCC Project Sync API
- 
 
 // ---- POST /api/project/create — Create a new project ----
 app.post("/api/project/create", authenticateToken, async (req, res) => {
@@ -307,14 +321,17 @@ app.post("/api/project/create", authenticateToken, async (req, res) => {
     }
 
     // CHECK LIMIT: Max 3 projects per owner
-    let countResult = await pool.query(`SELECT COUNT(*) as cnt FROM projects WHERE owner_id = $1`, [ownerId]);
+    let countResult = await pool.query(
+      `SELECT COUNT(*) as cnt FROM projects WHERE owner_id = $1`,
+      [ownerId],
+    );
     let currentCount = parseInt(countResult.rows[0].cnt);
 
     while (currentCount >= 3) {
       // Find the oldest project and delete its files + project row
       const oldest = await pool.query(
         `SELECT id FROM projects WHERE owner_id = $1 ORDER BY created_at ASC LIMIT 1`,
-        [ownerId]
+        [ownerId],
       );
       if (oldest.rowCount > 0) {
         const oldestId = oldest.rows[0].id;
@@ -322,27 +339,38 @@ app.post("/api/project/create", authenticateToken, async (req, res) => {
         // Xóa files trong MinIO
         try {
           const prefix = `${ownerId}/${oldestId}/`;
-          const minioData = await s3.send(new ListObjectsV2Command({
-            Bucket: MINIO_BUCKET,
-            Prefix: prefix
-          }));
-          
+          const minioData = await s3.send(
+            new ListObjectsV2Command({
+              Bucket: MINIO_BUCKET,
+              Prefix: prefix,
+            }),
+          );
+
           if (minioData.Contents && minioData.Contents.length > 0) {
             for (const obj of minioData.Contents) {
-              await s3.send(new DeleteObjectCommand({
-                Bucket: MINIO_BUCKET,
-                Key: obj.Key
-              }));
+              await s3.send(
+                new DeleteObjectCommand({
+                  Bucket: MINIO_BUCKET,
+                  Key: obj.Key,
+                }),
+              );
             }
-            console.log(`[AuthService] Deleted ${minioData.Contents.length} files from MinIO for workspace id=${oldestId}`);
+            console.log(
+              `[AuthService] Deleted ${minioData.Contents.length} files from MinIO for workspace id=${oldestId}`,
+            );
           }
         } catch (s3Err) {
-          console.error(`[AuthService] Failed to delete MinIO files for workspace id=${oldestId}`, s3Err.message);
+          console.error(
+            `[AuthService] Failed to delete MinIO files for workspace id=${oldestId}`,
+            s3Err.message,
+          );
         }
 
         await pool.query(`DELETE FROM files WHERE project_id = $1`, [oldestId]);
         await pool.query(`DELETE FROM projects WHERE id = $1`, [oldestId]);
-        console.log(`[AuthService] Limit reached (>=3). Deleted oldest workspace id=${oldestId}`);
+        console.log(
+          `[AuthService] Limit reached (>=3). Deleted oldest workspace id=${oldestId}`,
+        );
       } else {
         break; // No projects left to delete
       }
@@ -385,7 +413,9 @@ app.get("/api/project/files", authenticateToken, async (req, res) => {
   try {
     const projectId = Number(req.query.project_id);
     if (!projectId || !Number.isFinite(projectId)) {
-      return res.status(400).json({ error: "project_id query parameter required" });
+      return res
+        .status(400)
+        .json({ error: "project_id query parameter required" });
     }
 
     const ownerId = await getEffectiveOwnerId(Number(req.user.sub));
@@ -409,17 +439,21 @@ app.get("/api/project/files", authenticateToken, async (req, res) => {
       // sẽ bị xóa khỏi Postgres ngay lập tức, để Client tự động Push bù đắp!
       try {
         const prefix = `${ownerId}/${projectId}/`;
-        const minioData = await s3.send(new ListObjectsV2Command({
-          Bucket: MINIO_BUCKET,
-          Prefix: prefix
-        }));
-        
+        const minioData = await s3.send(
+          new ListObjectsV2Command({
+            Bucket: MINIO_BUCKET,
+            Prefix: prefix,
+          }),
+        );
+
         // Tạo tập hợp (Set) chứa các file thực sự còn tồn tại trên MinIO
-        const existingKeys = new Set((minioData.Contents || []).map(obj => obj.Key));
-        
+        const existingKeys = new Set(
+          (minioData.Contents || []).map((obj) => obj.Key),
+        );
+
         // Lọc lại danh sách trả về cho Client, đồng thời dọn rác ở Postgres
         const missingIds = [];
-        finalFiles = finalFiles.filter(f => {
+        finalFiles = finalFiles.filter((f) => {
           const expectedKey = `${prefix}${f.path}`;
           if (!existingKeys.has(expectedKey)) {
             missingIds.push(f.id);
@@ -430,11 +464,18 @@ app.get("/api/project/files", authenticateToken, async (req, res) => {
 
         // Xóa âm thầm các bản ghi ma (ghost records) khỏi Postgres
         if (missingIds.length > 0) {
-          console.log(`[API] Auto-healing: Found ${missingIds.length} ghost records in DB missing from MinIO. Removing...`);
-          await pool.query(`DELETE FROM files WHERE id = ANY($1::int[])`, [missingIds]);
+          console.log(
+            `[API] Auto-healing: Found ${missingIds.length} ghost records in DB missing from MinIO. Removing...`,
+          );
+          await pool.query(`DELETE FROM files WHERE id = ANY($1::int[])`, [
+            missingIds,
+          ]);
         }
       } catch (s3Err) {
-        console.error("[API] MinIO auto-heal check failed, continuing...", s3Err.message);
+        console.error(
+          "[API] MinIO auto-heal check failed, continuing...",
+          s3Err.message,
+        );
       }
     }
 
@@ -456,7 +497,12 @@ app.post("/api/project/sync/file", authenticateToken, async (req, res) => {
     const ownerId = await getEffectiveOwnerId(userId); // The actual owner (might be host)
 
     // ── Validate input ──
-    if (!project_id || !filePath || content === undefined || version === undefined) {
+    if (
+      !project_id ||
+      !filePath ||
+      content === undefined ||
+      version === undefined
+    ) {
       return res.status(400).json({
         error: "project_id, path, content, and version are required",
       });
@@ -466,7 +512,9 @@ app.post("/api/project/sync/file", authenticateToken, async (req, res) => {
     const clientVersion = Number(version);
 
     if (!Number.isFinite(projectId) || !Number.isFinite(clientVersion)) {
-      return res.status(400).json({ error: "project_id and version must be numbers" });
+      return res
+        .status(400)
+        .json({ error: "project_id and version must be numbers" });
     }
 
     // ── Verify project ownership ──
@@ -475,7 +523,9 @@ app.post("/api/project/sync/file", authenticateToken, async (req, res) => {
       [projectId, ownerId],
     );
     if (projectCheck.rowCount === 0) {
-      return res.status(403).json({ error: "project not found or not owned by you (or host)" });
+      return res
+        .status(403)
+        .json({ error: "project not found or not owned by you (or host)" });
     }
 
     // ── Compute content hash ──
@@ -566,10 +616,9 @@ app.post("/api/project/sync/file", authenticateToken, async (req, res) => {
     }
 
     // Update project's updated_at timestamp
-    await client.query(
-      `UPDATE projects SET updated_at = NOW() WHERE id = $1`,
-      [projectId],
-    );
+    await client.query(`UPDATE projects SET updated_at = NOW() WHERE id = $1`, [
+      projectId,
+    ]);
 
     // ── COMMIT ──
     await client.query("COMMIT");
@@ -579,12 +628,15 @@ app.post("/api/project/sync/file", authenticateToken, async (req, res) => {
     );
 
     // Bắn sự kiện realtime qua Redis để Gateway báo cho các Client khác trong room
-    await redisClient.publish("project_fs_events", JSON.stringify({
-      action: "update",
-      projectId,
-      filepath: filePath,
-      version: newVersion
-    }));
+    await redisClient.publish(
+      "project_fs_events",
+      JSON.stringify({
+        action: "update",
+        projectId,
+        filepath: filePath,
+        version: newVersion,
+      }),
+    );
 
     return res.status(200).json({
       new_version: newVersion,
@@ -594,7 +646,10 @@ app.post("/api/project/sync/file", authenticateToken, async (req, res) => {
   } catch (err) {
     // MinIO failure or any other error → rollback Postgres
     await client.query("ROLLBACK").catch(() => {});
-    console.error("[API] POST /api/project/sync/file error:", err.message || err);
+    console.error(
+      "[API] POST /api/project/sync/file error:",
+      err.message || err,
+    );
     return res.status(500).json({ error: "internal error" });
   } finally {
     client.release();
@@ -617,9 +672,10 @@ app.delete("/api/project/file", authenticateToken, async (req, res) => {
     // Tạm thời để đơn giản, ai có quyền truy cập project đều được xóa (vì file sync).
     const checkAccess = await client.query(
       `SELECT owner_id FROM projects WHERE id = $1`,
-      [projectId]
+      [projectId],
     );
-    if (checkAccess.rows.length === 0) return res.status(404).json({ error: "Project not found" });
+    if (checkAccess.rows.length === 0)
+      return res.status(404).json({ error: "Project not found" });
     const ownerId = checkAccess.rows[0].owner_id;
     // Bỏ qua check quyền chặt chẽ ở bước này (trong thực tế sẽ check collab roles).
 
@@ -627,7 +683,7 @@ app.delete("/api/project/file", authenticateToken, async (req, res) => {
     await client.query("BEGIN");
     const delRes = await client.query(
       `DELETE FROM files WHERE project_id = $1 AND path = $2 RETURNING id`,
-      [projectId, filePath]
+      [projectId, filePath],
     );
 
     if (delRes.rows.length > 0) {
@@ -638,21 +694,30 @@ app.delete("/api/project/file", authenticateToken, async (req, res) => {
           new DeleteObjectCommand({
             Bucket: process.env.MINIO_BUCKET || "cloud-ide",
             Key: minioKey,
-          })
+          }),
         );
       } catch (e) {
-        console.warn("[API] MinIO delete failed, but DB record removed:", e.message);
+        console.warn(
+          "[API] MinIO delete failed, but DB record removed:",
+          e.message,
+        );
       }
 
-      await client.query(`UPDATE projects SET updated_at = NOW() WHERE id = $1`, [projectId]);
+      await client.query(
+        `UPDATE projects SET updated_at = NOW() WHERE id = $1`,
+        [projectId],
+      );
       await client.query("COMMIT");
 
       // Bắn sự kiện realtime qua Redis
-      await redisClient.publish("project_fs_events", JSON.stringify({
-        action: "delete",
-        projectId,
-        filepath: filePath
-      }));
+      await redisClient.publish(
+        "project_fs_events",
+        JSON.stringify({
+          action: "delete",
+          projectId,
+          filepath: filePath,
+        }),
+      );
 
       console.log(`[API] Delete OK: project=${projectId} path=${filePath}`);
       return res.status(200).json({ message: "File deleted" });
@@ -678,7 +743,9 @@ app.get("/api/project/file", authenticateToken, async (req, res) => {
     const ownerId = await getEffectiveOwnerId(userId);
 
     if (!projectId || !filePath) {
-      return res.status(400).json({ error: "project_id and path query params required" });
+      return res
+        .status(400)
+        .json({ error: "project_id and path query params required" });
     }
 
     // Verify ownership + get metadata
@@ -710,7 +777,9 @@ app.get("/api/project/file", authenticateToken, async (req, res) => {
     });
   } catch (err) {
     if (err.name === "NoSuchKey" || err.$metadata?.httpStatusCode === 404) {
-      return res.status(404).json({ error: "file content not found in storage" });
+      return res
+        .status(404)
+        .json({ error: "file content not found in storage" });
     }
     console.error("[API] GET /api/project/file error:", err.message || err);
     return res.status(500).json({ error: "internal error" });
@@ -726,7 +795,9 @@ app.get("/api/project/clone", authenticateToken, async (req, res) => {
     const ownerId = await getEffectiveOwnerId(userId);
 
     if (!projectId || !Number.isFinite(projectId)) {
-      return res.status(400).json({ error: "project_id query parameter required" });
+      return res
+        .status(400)
+        .json({ error: "project_id query parameter required" });
     }
 
     // 1. Verify ownership + get all file metadata from Postgres
@@ -751,10 +822,21 @@ app.get("/api/project/clone", authenticateToken, async (req, res) => {
           new GetObjectCommand({ Bucket: MINIO_BUCKET, Key: minioKey }),
         );
         const content = await streamToString(s3Response.Body);
-        return { path: row.path, version: row.version, hash: row.hash, content };
+        return {
+          path: row.path,
+          version: row.version,
+          hash: row.hash,
+          content,
+        };
       } catch (err) {
         console.warn(`[API] Clone: failed to pull ${minioKey}:`, err.message);
-        return { path: row.path, version: row.version, hash: row.hash, content: null, error: err.message };
+        return {
+          path: row.path,
+          version: row.version,
+          hash: row.hash,
+          content: null,
+          error: err.message,
+        };
       }
     });
 
@@ -770,9 +852,7 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
- 
 // Virtual Session Mapping (Room APIs)
- 
 
 app.post("/api/room/join", authenticateToken, async (req, res) => {
   try {
@@ -784,14 +864,19 @@ app.post("/api/room/join", authenticateToken, async (req, res) => {
     }
 
     // Find the owner of this room
-    const result = await pool.query(`SELECT id, username FROM users WHERE room_id = $1 LIMIT 1`, [room_id]);
+    const result = await pool.query(
+      `SELECT id, username FROM users WHERE room_id = $1 LIMIT 1`,
+      [room_id],
+    );
     if (result.rowCount === 0) {
       return res.status(404).json({ error: "room not found" });
     }
 
     const ownerId = result.rows[0].id;
     if (ownerId === guestId) {
-      return res.status(400).json({ error: "cannot join your own room as guest" });
+      return res
+        .status(400)
+        .json({ error: "cannot join your own room as guest" });
     }
 
     // 1. Map session in Redis
@@ -800,13 +885,16 @@ app.post("/api/room/join", authenticateToken, async (req, res) => {
     await redisClient.sAdd(`room:${room_id}:guests`, String(guestId));
 
     // 3. Get list of projects for this owner
-    const projects = await pool.query(`SELECT id, name, created_at, updated_at FROM projects WHERE owner_id = $1`, [ownerId]);
+    const projects = await pool.query(
+      `SELECT id, name, created_at, updated_at FROM projects WHERE owner_id = $1`,
+      [ownerId],
+    );
 
     return res.status(200).json({
       message: `Joined room hosted by ${result.rows[0].username}`,
       owner_id: ownerId,
       owner_username: result.rows[0].username,
-      projects: projects.rows
+      projects: projects.rows,
     });
   } catch (err) {
     console.error("[API] POST /api/room/join error:", err.message || err);
@@ -823,7 +911,7 @@ app.post("/api/room/leave", authenticateToken, async (req, res) => {
     if (room_id) {
       await redisClient.sRem(`room:${room_id}:guests`, String(guestId));
     }
-    
+
     return res.status(200).json({ message: "Left room successfully" });
   } catch (err) {
     console.error("[API] POST /api/room/leave error:", err.message || err);
@@ -837,7 +925,10 @@ app.get("/api/room/members", authenticateToken, async (req, res) => {
     const userId = Number(req.user.sub);
 
     // Lấy room_id của user này (chủ phòng)
-    const result = await pool.query(`SELECT room_id FROM users WHERE id = $1 LIMIT 1`, [userId]);
+    const result = await pool.query(
+      `SELECT room_id FROM users WHERE id = $1 LIMIT 1`,
+      [userId],
+    );
     if (result.rowCount === 0) {
       return res.status(404).json({ error: "user not found" });
     }
@@ -850,17 +941,20 @@ app.get("/api/room/members", authenticateToken, async (req, res) => {
     }
 
     // Lấy username của từng guest từ Postgres
-    const numericIds = guestIds.map(Number).filter(id => !isNaN(id));
+    const numericIds = guestIds.map(Number).filter((id) => !isNaN(id));
     if (numericIds.length === 0) {
       return res.status(200).json({ members: [] });
     }
 
     const usersResult = await pool.query(
       `SELECT id, username FROM users WHERE id = ANY($1::int[])`,
-      [numericIds]
+      [numericIds],
     );
 
-    const members = usersResult.rows.map(u => ({ id: u.id, username: u.username }));
+    const members = usersResult.rows.map((u) => ({
+      id: u.id,
+      username: u.username,
+    }));
     return res.status(200).json({ members, room_id: roomId });
   } catch (err) {
     console.error("[API] GET /api/room/members error:", err.message || err);
@@ -889,14 +983,20 @@ app.post("/api/room/kick", authenticateToken, async (req, res) => {
     }
 
     // Lấy room_id của chủ phòng
-    const ownerResult = await pool.query(`SELECT room_id FROM users WHERE id = $1 LIMIT 1`, [ownerId]);
+    const ownerResult = await pool.query(
+      `SELECT room_id FROM users WHERE id = $1 LIMIT 1`,
+      [ownerId],
+    );
     if (ownerResult.rowCount === 0) {
       return res.status(404).json({ error: "owner not found" });
     }
     const roomId = ownerResult.rows[0].room_id;
 
     // Kiểm tra guest có trong phòng không
-    const isMember = await redisClient.sIsMember(`room:${roomId}:guests`, String(guestIdNum));
+    const isMember = await redisClient.sIsMember(
+      `room:${roomId}:guests`,
+      String(guestIdNum),
+    );
     if (!isMember) {
       return res.status(404).json({ error: "guest not found in your room" });
     }
@@ -907,13 +1007,18 @@ app.post("/api/room/kick", authenticateToken, async (req, res) => {
     await redisClient.sRem(`room:${roomId}:guests`, String(guestIdNum));
 
     // Thông báo qua Redis pub/sub để Gateway có thể ngắt kết nối guest
-    await redisClient.publish("room_kick_events", JSON.stringify({
-      room_id: roomId,
-      kicked_user_id: guestIdNum,
-      kicked_by: ownerId,
-    }));
+    await redisClient.publish(
+      "room_kick_events",
+      JSON.stringify({
+        room_id: roomId,
+        kicked_user_id: guestIdNum,
+        kicked_by: ownerId,
+      }),
+    );
 
-    console.log(`[API] Owner ${ownerId} kicked guest ${guestIdNum} from room ${roomId}`);
+    console.log(
+      `[API] Owner ${ownerId} kicked guest ${guestIdNum} from room ${roomId}`,
+    );
     return res.status(200).json({ message: "Guest kicked successfully" });
   } catch (err) {
     console.error("[API] POST /api/room/kick error:", err.message || err);
@@ -924,17 +1029,24 @@ app.post("/api/room/kick", authenticateToken, async (req, res) => {
 // Rotate Room IDs every 15 minutes, skipping rooms with active guests
 async function rotateRoomIds() {
   try {
-    const allUsers = await pool.query(`SELECT id, room_id FROM users WHERE room_id IS NOT NULL`);
+    const allUsers = await pool.query(
+      `SELECT id, room_id FROM users WHERE room_id IS NOT NULL`,
+    );
     let rotated = 0;
-    
+
     for (const user of allUsers.rows) {
       const roomId = user.room_id;
       // Check if there are active guests in this room
       const guests = await redisClient.sMembers(`room:${roomId}:guests`);
       if (!guests || guests.length === 0) {
         // Safe to rotate
-        const newRoomId = Math.floor(Math.random() * 1e16).toString().padStart(16, '0');
-        await pool.query(`UPDATE users SET room_id = $1 WHERE id = $2`, [newRoomId, user.id]);
+        const newRoomId = Math.floor(Math.random() * 1e16)
+          .toString()
+          .padStart(16, "0");
+        await pool.query(`UPDATE users SET room_id = $1 WHERE id = $2`, [
+          newRoomId,
+          user.id,
+        ]);
         rotated++;
       }
     }
@@ -948,9 +1060,11 @@ async function startAuthService() {
   try {
     await redisClient.connect();
     await pool.query("SELECT 1");
-    
+
     // Initial generation for users with NULL room_id
-    await pool.query(`UPDATE users SET room_id = lpad(floor(random() * 1e16)::bigint::text, 16, '0') WHERE room_id IS NULL`);
+    await pool.query(
+      `UPDATE users SET room_id = lpad(floor(random() * 1e16)::bigint::text, 16, '0') WHERE room_id IS NULL`,
+    );
 
     // Start 15-minute cron job
     setInterval(rotateRoomIds, 15 * 60 * 1000);

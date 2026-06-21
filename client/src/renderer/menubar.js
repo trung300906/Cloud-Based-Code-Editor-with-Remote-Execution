@@ -1,7 +1,6 @@
- 
 // MENUBAR — Custom dropdown menu, doSave, handleMenuAction
 // setEditorLanguage được import từ monaco-init.js (tránh circular)
- 
+
 import { state, LS } from "./state.js";
 import { getFocusedPane, splitEditor, removePane } from "./pane.js";
 import { openOrActivateTab } from "./tab.js";
@@ -149,7 +148,12 @@ export async function initCustomMenubar() {
   // Lắng nghe sự kiện xung đột đồng bộ
   if (window.electronAPI && window.electronAPI.onSyncConflict) {
     window.electronAPI.onSyncConflict((data) => {
-      showDiffResolution(data.filepath, data.localContent, data.cloudContent, data.cloudVersion);
+      showDiffResolution(
+        data.filepath,
+        data.localContent,
+        data.cloudContent,
+        data.cloudVersion,
+      );
     });
   }
 
@@ -159,14 +163,16 @@ export async function initCustomMenubar() {
       // Khi đang trong Collab Room, CRDT là nguồn sự thật duy nhất.
       // KHÔNG pull file từ cloud — sẽ phá hỏng Yjs binding.
       if (state.isInCollabRoom) {
-        console.log(`[Renderer] Skipping remote-file-update (in collab room): ${data.filepath}`);
+        console.log(
+          `[Renderer] Skipping remote-file-update (in collab room): ${data.filepath}`,
+        );
         return;
       }
 
       const { filepath, relPath, projectId, workspaceRoot, token } = data;
       let isModified = false;
       let localContent = "";
-      
+
       for (const tab of state.tabs.values()) {
         if (tab.filePath === filepath) {
           isModified = tab.isModified;
@@ -176,11 +182,26 @@ export async function initCustomMenubar() {
       }
 
       if (isModified) {
-         console.log(`[Renderer] Local file ${filepath} is dirty. Triggering conflict check...`);
-         window.electronAPI.triggerConflict({ filepath, relPath, localContent, projectId, token });
+        console.log(
+          `[Renderer] Local file ${filepath} is dirty. Triggering conflict check...`,
+        );
+        window.electronAPI.triggerConflict({
+          filepath,
+          relPath,
+          localContent,
+          projectId,
+          token,
+        });
       } else {
-         console.log(`[Renderer] Local file ${filepath} is clean. Safe to pull.`);
-         window.electronAPI.safePullAndReload({ filepath, projectId, token, workspaceRoot });
+        console.log(
+          `[Renderer] Local file ${filepath} is clean. Safe to pull.`,
+        );
+        window.electronAPI.safePullAndReload({
+          filepath,
+          projectId,
+          token,
+          workspaceRoot,
+        });
       }
     });
   }
@@ -191,7 +212,7 @@ export async function initCustomMenubar() {
       try {
         const { filepath, content } = data;
         if (content === null || content === undefined) return;
-        
+
         for (const tab of state.tabs.values()) {
           if (tab.filePath === filepath && tab.model) {
             tab.model.setValue(content);
@@ -201,7 +222,7 @@ export async function initCustomMenubar() {
             break;
           }
         }
-      } catch(e) {}
+      } catch (e) {}
     });
   }
 
@@ -318,8 +339,12 @@ export async function initCustomMenubar() {
 
   // ---- Activity tracking ----
   let lastActivity = Date.now();
-  document.addEventListener("mousemove", () => { lastActivity = Date.now(); });
-  document.addEventListener("keydown", () => { lastActivity = Date.now(); });
+  document.addEventListener("mousemove", () => {
+    lastActivity = Date.now();
+  });
+  document.addEventListener("keydown", () => {
+    lastActivity = Date.now();
+  });
 
   // ---- Theme toggle ----
   const themeBtn = document.getElementById("theme-toggle-btn");
@@ -352,9 +377,9 @@ export async function initCustomMenubar() {
     );
   }
 
-  const AUTH_URL = "http://100.124.23.95:3000/login";
-  const LOGOUT_URL = "http://100.124.23.95:3000/logout";
-  const REGISTER_URL = "http://100.124.23.95:3000/register";
+  const AUTH_URL = "http://100.84.67.110:3000/login";
+  const LOGOUT_URL = "http://100.84.67.110:3000/logout";
+  const REGISTER_URL = "http://100.84.67.110:3000/register";
   async function loadUserProfile() {
     try {
       const raw = localStorage.getItem(LS.USER_PROFILE);
@@ -362,7 +387,9 @@ export async function initCustomMenubar() {
       const profile = JSON.parse(raw);
       // Giải mã token từ OS keychain nếu có
       if (profile?.encryptedToken && window.electronAPI?.decryptToken) {
-        profile.token = await window.electronAPI.decryptToken(profile.encryptedToken);
+        profile.token = await window.electronAPI.decryptToken(
+          profile.encryptedToken,
+        );
         delete profile.encryptedToken;
       }
       return profile;
@@ -376,7 +403,9 @@ export async function initCustomMenubar() {
       const toSave = { ...profile };
       // Mã hóa token bằng OS keychain trước khi lưu
       if (toSave.token && window.electronAPI?.encryptToken) {
-        toSave.encryptedToken = await window.electronAPI.encryptToken(toSave.token);
+        toSave.encryptedToken = await window.electronAPI.encryptToken(
+          toSave.token,
+        );
         delete toSave.token; // Không lưu plaintext token
       }
       localStorage.setItem(LS.USER_PROFILE, JSON.stringify(toSave));
@@ -485,7 +514,7 @@ export async function initCustomMenubar() {
         const payload = JSON.parse(atob(parts[1]));
         if (!payload.exp) return false;
         // Expiring in less than 15 minutes?
-        return (payload.exp * 1000) - Date.now() < 15 * 60 * 1000;
+        return payload.exp * 1000 - Date.now() < 15 * 60 * 1000;
       } catch (_) {
         return false;
       }
@@ -516,21 +545,24 @@ export async function initCustomMenubar() {
       if (!currentProfile?.loggedIn || !currentProfile?.token) return;
 
       const inactiveMs = Date.now() - lastActivity;
-      if (inactiveMs > 3600000) { // 1 hour
+      if (inactiveMs > 3600000) {
+        // 1 hour
         console.warn("[Menubar] Inactive for 1 hour, auto logging out...");
-        alert("Phiên đăng nhập đã hết hạn do bạn không có hoạt động nào trong 1 giờ. Vui lòng đăng nhập lại.");
+        alert(
+          "Phiên đăng nhập đã hết hạn do bạn không có hoạt động nào trong 1 giờ. Vui lòng đăng nhập lại.",
+        );
         performLogout();
         return;
       }
 
       if (isTokenExpiringSoon(currentProfile.token)) {
         try {
-          const response = await fetch("http://100.124.23.95:3000/refresh", {
+          const response = await fetch("http://100.84.67.110:3000/refresh", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "Authorization": `Bearer ${currentProfile.token}`
-            }
+              Authorization: `Bearer ${currentProfile.token}`,
+            },
           });
           const payload = await response.json();
           if (response.ok && payload.token) {
@@ -619,8 +651,13 @@ export async function initCustomMenubar() {
 
           let payload = await response.json().catch(() => ({}));
           if (!response.ok || !payload?.token) {
-            if (response.status === 409 && payload?.error === "user already online") {
-              const forceLogin = confirm("User is already logged in elsewhere. Do you want to kick the old session and login here?");
+            if (
+              response.status === 409 &&
+              payload?.error === "user already online"
+            ) {
+              const forceLogin = confirm(
+                "User is already logged in elsewhere. Do you want to kick the old session and login here?",
+              );
               if (!forceLogin) {
                 if (loginStatus) {
                   loginStatus.textContent = "Login cancelled";
@@ -628,7 +665,7 @@ export async function initCustomMenubar() {
                 }
                 return;
               }
-              
+
               // Retry with force: true
               const forceResponse = await fetch(AUTH_URL, {
                 method: "POST",
@@ -637,7 +674,8 @@ export async function initCustomMenubar() {
               });
               payload = await forceResponse.json().catch(() => ({}));
               if (!forceResponse.ok || !payload?.token) {
-                const message = payload?.error || `Login failed (${forceResponse.status})`;
+                const message =
+                  payload?.error || `Login failed (${forceResponse.status})`;
                 if (loginStatus) {
                   loginStatus.textContent = message;
                   loginStatus.classList.add("is-error");
@@ -715,10 +753,12 @@ export async function initCustomMenubar() {
           });
           if (!response.ok) {
             const payload = await response.json().catch(() => ({}));
-            const isExpired = payload?.error === "invalid token" || response.status === 401;
+            const isExpired =
+              payload?.error === "invalid token" || response.status === 401;
             if (!isExpired) {
               // Lỗi thật sự (không phải expired) → báo lỗi và dừng
-              const message = payload?.error || `Logout failed (${response.status})`;
+              const message =
+                payload?.error || `Logout failed (${response.status})`;
               if (loginStatus) {
                 loginStatus.textContent = message;
                 loginStatus.classList.add("is-error");
@@ -804,7 +844,10 @@ export async function initCustomMenubar() {
           tmp.remove();
         }
         if (window.showToast) {
-          window.showToast("Room ID copied to clipboard", window.ToastType.INFO);
+          window.showToast(
+            "Room ID copied to clipboard",
+            window.ToastType.INFO,
+          );
         }
       });
     }
@@ -822,10 +865,13 @@ export async function initCustomMenubar() {
       if (!token || !currentProfile?.loggedIn) return;
 
       try {
-        const response = await fetch("http://100.124.23.95:3000/api/room/members", {
-          method: "GET",
-          headers: { "Authorization": `Bearer ${token}` }
-        });
+        const response = await fetch(
+          "http://100.84.67.110:3000/api/room/members",
+          {
+            method: "GET",
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
         if (!response.ok) return;
 
         const payload = await response.json();
@@ -844,54 +890,73 @@ export async function initCustomMenubar() {
         // Render member list
         if (roomMembersList) {
           if (members.length === 0) {
-            roomMembersList.innerHTML = "<div class=\"room-members-empty\">No guests in your room</div>";
+            roomMembersList.innerHTML =
+              '<div class="room-members-empty">No guests in your room</div>';
           } else {
-            roomMembersList.innerHTML = members.map(m => `
+            roomMembersList.innerHTML = members
+              .map(
+                (m) => `
               <div class="room-member-row">
                 <div class="room-member-avatar">${m.username.slice(0, 2).toUpperCase()}</div>
                 <span class="room-member-name">${escapeHtml(m.username)}</span>
                 <div class="room-member-online-dot"></div>
                 <button class="kick-btn" data-guest-id="${m.id}" data-guest-name="${escapeHtml(m.username)}" title="Kick ${escapeHtml(m.username)} from room">Kick</button>
               </div>
-            `).join("");
+            `,
+              )
+              .join("");
 
             // Attach kick event listeners
-            roomMembersList.querySelectorAll(".kick-btn").forEach(btn => {
+            roomMembersList.querySelectorAll(".kick-btn").forEach((btn) => {
               btn.addEventListener("click", async (e) => {
                 e.stopPropagation();
                 const guestId = btn.dataset.guestId;
                 const guestName = btn.dataset.guestName;
-                const confirmed = confirm(`Kick "${guestName}" out of your room?`);
+                const confirmed = confirm(
+                  `Kick "${guestName}" out of your room?`,
+                );
                 if (!confirmed) return;
 
                 btn.textContent = "...";
                 btn.disabled = true;
 
                 try {
-                  const kickResp = await fetch("http://100.124.23.95:3000/api/room/kick", {
-                    method: "POST",
-                    headers: {
-                      "Content-Type": "application/json",
-                      "Authorization": `Bearer ${currentProfile.token}`
+                  const kickResp = await fetch(
+                    "http://100.84.67.110:3000/api/room/kick",
+                    {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${currentProfile.token}`,
+                      },
+                      body: JSON.stringify({ guest_id: Number(guestId) }),
                     },
-                    body: JSON.stringify({ guest_id: Number(guestId) })
-                  });
+                  );
                   const kickPayload = await kickResp.json();
                   if (kickResp.ok) {
                     if (window.showToast) {
-                      window.showToast(`"${guestName}" đã bị kick khỏi phòng`, window.ToastType.SUCCESS);
+                      window.showToast(
+                        `"${guestName}" đã bị kick khỏi phòng`,
+                        window.ToastType.SUCCESS,
+                      );
                     }
                     fetchRoomMembers(); // refresh immediately
                   } else {
                     if (window.showToast) {
-                      window.showToast(kickPayload.error || "Kick failed", window.ToastType.ERROR);
+                      window.showToast(
+                        kickPayload.error || "Kick failed",
+                        window.ToastType.ERROR,
+                      );
                     }
                     btn.textContent = "Kick";
                     btn.disabled = false;
                   }
                 } catch (err) {
                   if (window.showToast) {
-                    window.showToast("Network error: " + err.message, window.ToastType.ERROR);
+                    window.showToast(
+                      "Network error: " + err.message,
+                      window.ToastType.ERROR,
+                    );
                   }
                   btn.textContent = "Kick";
                   btn.disabled = false;
@@ -926,7 +991,9 @@ export async function initCustomMenubar() {
       }
       // Hide panel and reset
       if (roomMembersPanel) roomMembersPanel.style.display = "none";
-      if (roomMembersList) roomMembersList.innerHTML = "<div class=\"room-members-empty\">No guests in your room</div>";
+      if (roomMembersList)
+        roomMembersList.innerHTML =
+          '<div class="room-members-empty">No guests in your room</div>';
       if (roomMembersCount) roomMembersCount.textContent = "0";
     }
 
@@ -956,11 +1023,17 @@ export async function initCustomMenubar() {
 
         joinRoomBtn.textContent = "Joining...";
         try {
-          const response = await fetch("http://100.124.23.95:3000/api/room/join", {
-            method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-            body: JSON.stringify({ room_id: roomIdToJoin })
-          });
+          const response = await fetch(
+            "http://100.84.67.110:3000/api/room/join",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+              },
+              body: JSON.stringify({ room_id: roomIdToJoin }),
+            },
+          );
           const payload = await response.json();
           if (!response.ok) {
             alert(payload.error || "Failed to join room");
@@ -977,7 +1050,11 @@ export async function initCustomMenubar() {
 
           // Show workspace selection modal
           state.isInCollabRoom = true;
-          showWorkspaceModal(payload.projects, payload.owner_username, roomIdToJoin);
+          showWorkspaceModal(
+            payload.projects,
+            payload.owner_username,
+            roomIdToJoin,
+          );
         } catch (err) {
           alert("Error: " + err.message);
           joinRoomBtn.textContent = "Join Room";
@@ -989,14 +1066,17 @@ export async function initCustomMenubar() {
       leaveRoomBtn.addEventListener("click", async () => {
         const token = currentProfile?.token;
         if (!token) return;
-        
+
         try {
-          await fetch("http://100.124.23.95:3000/api/room/leave", {
+          await fetch("http://100.84.67.110:3000/api/room/leave", {
             method: "POST",
-            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${token}` },
-            body: JSON.stringify({})
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({}),
           });
-        } catch(e) {} // ignore local errors
+        } catch (e) {} // ignore local errors
 
         // Reset UI
         joinRoomBtn.style.display = "block";
@@ -1005,7 +1085,7 @@ export async function initCustomMenubar() {
         joinRoomInput.value = "";
         leaveRoomBtn.style.display = "none";
         activeRoomRow.style.display = "none";
-        
+
         // Notify electron to clear guest workspace
         if (window.electronAPI?.leaveRoom) {
           window.electronAPI.leaveRoom();
@@ -1023,9 +1103,10 @@ export async function initCustomMenubar() {
 
       listContainer.innerHTML = "";
       if (projects.length === 0) {
-        listContainer.innerHTML = "<div style='color:#ffaa00'>This user has no workspaces!</div>";
+        listContainer.innerHTML =
+          "<div style='color:#ffaa00'>This user has no workspaces!</div>";
       } else {
-        projects.forEach(proj => {
+        projects.forEach((proj) => {
           const btn = document.createElement("button");
           btn.className = "primary-btn";
           btn.style.width = "100%";
@@ -1035,22 +1116,27 @@ export async function initCustomMenubar() {
             modal.style.display = "none";
             // Tell electron we are a guest working on this project
             if (window.electronAPI?.projectSet) {
-               window.electronAPI.projectSet({
-                 name: proj.name,
-                 workspaceRoot: null, // Let Main process handle it
-                 isGuest: true,
-                 ownerUsername: ownerUsername,
-                 roomId: roomId,
-                 projectId: proj.id
-               }).then(res => {
-                 if (res.success) {
-                   // Clone project content for guest
-                   window.electronAPI.cloneGuestProject({ projectId: proj.id, token: currentProfile.token });
-                   requestCollabSync();
-                 } else {
-                   alert("Error setting project context: " + res.error);
-                 }
-               });
+              window.electronAPI
+                .projectSet({
+                  name: proj.name,
+                  workspaceRoot: null, // Let Main process handle it
+                  isGuest: true,
+                  ownerUsername: ownerUsername,
+                  roomId: roomId,
+                  projectId: proj.id,
+                })
+                .then((res) => {
+                  if (res.success) {
+                    // Clone project content for guest
+                    window.electronAPI.cloneGuestProject({
+                      projectId: proj.id,
+                      token: currentProfile.token,
+                    });
+                    requestCollabSync();
+                  } else {
+                    alert("Error setting project context: " + res.error);
+                  }
+                });
             }
           };
           listContainer.appendChild(btn);

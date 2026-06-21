@@ -1,7 +1,6 @@
- 
 // MAIN PROCESS — Entry point (slim)
 // IPC handlers được tách vào src/main/ipc-*.js
- 
+
 const { app, BrowserWindow, Menu, ipcMain, safeStorage } = require("electron");
 const { buildTree } = require("./src/main/file-utils.js");
 const path = require("node:path");
@@ -20,12 +19,12 @@ const { syncManager, setupSyncIPC } = require("./src/main/sync-service.js");
 let mainWindow;
 let tcpBootstrapped = false;
 let currentToken = null;
-let currentProjectId = null;   // Active project ID (set after folder open + project create)
+let currentProjectId = null; // Active project ID (set after folder open + project create)
 let currentWorkspaceRoot = null; // Absolute path to the workspace root folder
-let originalProjectId = null;    // Lưu lại project ID gốc trước khi join room
+let originalProjectId = null; // Lưu lại project ID gốc trước khi join room
 let originalWorkspaceRoot = null; // Lưu lại thư mục gốc trước khi join room
-let currentRunId = null;       // Active code execution request ID
-let isInCollabRoom = false;    // True khi đang trong collab room (Guest hoặc Host có guest)
+let currentRunId = null; // Active code execution request ID
+let isInCollabRoom = false; // True khi đang trong collab room (Guest hoặc Host có guest)
 
 function getToken() {
   return currentToken;
@@ -55,13 +54,18 @@ function createWindow() {
 app.whenReady().then(() => {
   createWindow();
 
-  mainWindow.webContents.on('console-message', (event, levelOrDetails, message, line, sourceId) => {
-    if (typeof levelOrDetails === 'object') {
-      console.log(`[Renderer] ${levelOrDetails.message} (${levelOrDetails.sourceId}:${levelOrDetails.line})`);
-    } else {
-      console.log(`[Renderer] ${message} (${sourceId}:${line})`);
-    }
-  });
+  mainWindow.webContents.on(
+    "console-message",
+    (event, levelOrDetails, message, line, sourceId) => {
+      if (typeof levelOrDetails === "object") {
+        console.log(
+          `[Renderer] ${levelOrDetails.message} (${levelOrDetails.sourceId}:${levelOrDetails.line})`,
+        );
+      } else {
+        console.log(`[Renderer] ${message} (${sourceId}:${line})`);
+      }
+    },
+  );
 
   // Đăng ký IPC một lần sau khi window được tạo
   registerFileIPC(mainWindow);
@@ -120,24 +124,31 @@ app.whenReady().then(() => {
       currentWorkspaceRoot = workspaceRoot || null;
 
       if (!currentToken || !name) {
-        console.warn(`[Main] project:set — no token or name, skipping API call. token=${!!currentToken}, name="${name}"`);
+        console.warn(
+          `[Main] project:set — no token or name, skipping API call. token=${!!currentToken}, name="${name}"`,
+        );
         currentProjectId = null;
         return { success: false, error: "Not logged in or no project name" };
       }
 
       // Call the server to create/get the project
-      const response = await fetch("http://100.124.23.95:3000/api/project/create", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${currentToken}`,
-          "Content-Type": "application/json",
+      const response = await fetch(
+        "http://100.84.67.110:3000/api/project/create",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${currentToken}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ name }),
         },
-        body: JSON.stringify({ name }),
-      });
+      );
 
       const data = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error(data.error || `Project create failed (${response.status})`);
+        throw new Error(
+          data.error || `Project create failed (${response.status})`,
+        );
       }
 
       currentProjectId = data.project?.id || null;
@@ -152,10 +163,18 @@ app.whenReady().then(() => {
 
       // Pre-load file versions from server → prevents false 409 conflicts on restart
       if (currentProjectId) {
-        await syncManager.syncVersionsFromServer(currentToken, currentProjectId, currentWorkspaceRoot);
+        await syncManager.syncVersionsFromServer(
+          currentToken,
+          currentProjectId,
+          currentWorkspaceRoot,
+        );
       }
 
-      return { success: true, projectId: currentProjectId, created: data.created };
+      return {
+        success: true,
+        projectId: currentProjectId,
+        created: data.created,
+      };
     } catch (err) {
       console.error("[Main] project:set error:", err.message || err);
       currentProjectId = null;
@@ -169,21 +188,26 @@ app.whenReady().then(() => {
       if (!currentToken || !data.projectId) {
         return { success: false, error: "Not logged in or missing project ID" };
       }
-      if (!currentWorkspaceRoot || !currentWorkspaceRoot.includes("cbcode_guest_")) {
+      if (
+        !currentWorkspaceRoot ||
+        !currentWorkspaceRoot.includes("cbcode_guest_")
+      ) {
         originalProjectId = currentProjectId;
         originalWorkspaceRoot = currentWorkspaceRoot;
       }
       currentProjectId = data.projectId;
       tcpClient.setSession({ roomId: String(currentProjectId) });
-      
+
       // Create a local temporary workspace for the guest
       const guestFolder = path.join(os.tmpdir(), "cbcode_guest_" + Date.now());
       fs.mkdirSync(guestFolder, { recursive: true });
       currentWorkspaceRoot = guestFolder;
-      
-      console.log(`[Main] Guest Project set: id=${currentProjectId}, name="${data.name}", root="${currentWorkspaceRoot}"`);
+
+      console.log(
+        `[Main] Guest Project set: id=${currentProjectId}, name="${data.name}", root="${currentWorkspaceRoot}"`,
+      );
       isInCollabRoom = true;
-      
+
       // We don't preload syncVersionsFromServer yet, wait for cloneGuestProject to finish
       return { success: true, workspaceRoot: currentWorkspaceRoot };
     } catch (err) {
@@ -195,9 +219,12 @@ app.whenReady().then(() => {
   ipcMain.on("project:clone_guest", async (_event, data) => {
     try {
       console.log("[Main] Fetching full guest project clone...");
-      const response = await fetch(`http://100.124.23.95:3000/api/project/clone?project_id=${data.projectId}`, {
-        headers: { Authorization: `Bearer ${data.token}` }
-      });
+      const response = await fetch(
+        `http://100.84.67.110:3000/api/project/clone?project_id=${data.projectId}`,
+        {
+          headers: { Authorization: `Bearer ${data.token}` },
+        },
+      );
       const payload = await response.json();
       if (!response.ok) throw new Error(payload.error || "Clone failed");
 
@@ -209,27 +236,34 @@ app.whenReady().then(() => {
         fs.writeFileSync(absPath, file.content || "");
       }
 
-      console.log(`[Main] Guest Project Cloned! ${payload.files.length} files written to ${currentWorkspaceRoot}`);
-      
+      console.log(
+        `[Main] Guest Project Cloned! ${payload.files.length} files written to ${currentWorkspaceRoot}`,
+      );
+
       // Sync local maps with server versions
-      await syncManager.syncVersionsFromServer(currentToken, currentProjectId, currentWorkspaceRoot);
-      
+      await syncManager.syncVersionsFromServer(
+        currentToken,
+        currentProjectId,
+        currentWorkspaceRoot,
+      );
+
       // Tell renderer to open this folder
       const treeData = buildTree(currentWorkspaceRoot);
       mainWindow.webContents.send("folder-opened", {
         items: treeData,
-        folderPath: currentWorkspaceRoot
+        folderPath: currentWorkspaceRoot,
       });
-    } catch(err) {
+    } catch (err) {
       console.error("[Main] clone_guest error:", err);
     }
   });
 
   ipcMain.on("room:leave", () => {
     try {
-      const guestFolderToClean = (currentWorkspaceRoot && currentWorkspaceRoot.includes("cbcode_guest_")) 
-        ? currentWorkspaceRoot 
-        : null;
+      const guestFolderToClean =
+        currentWorkspaceRoot && currentWorkspaceRoot.includes("cbcode_guest_")
+          ? currentWorkspaceRoot
+          : null;
 
       // Restore state FIRST
       currentProjectId = originalProjectId;
@@ -240,28 +274,42 @@ app.whenReady().then(() => {
         tcpClient.setSession({ roomId: "default" });
       }
       isInCollabRoom = false;
-      
+
       // Tell UI to restore original sidebar so files are closed
       if (currentWorkspaceRoot && fs.existsSync(currentWorkspaceRoot)) {
         const treeData = buildTree(currentWorkspaceRoot);
         mainWindow.webContents.send("folder-opened", {
           items: treeData,
-          folderPath: currentWorkspaceRoot
+          folderPath: currentWorkspaceRoot,
         });
       } else {
-        mainWindow.webContents.send("folder-opened", { items: [], folderPath: null });
+        mainWindow.webContents.send("folder-opened", {
+          items: [],
+          folderPath: null,
+        });
       }
 
       // Cleanup guest folder safely after UI changes
       if (guestFolderToClean) {
-        console.log(`[Main] Leaving room, clearing guest folder: ${guestFolderToClean}`);
+        console.log(
+          `[Main] Leaving room, clearing guest folder: ${guestFolderToClean}`,
+        );
         setTimeout(() => {
           try {
-            fs.rmSync(guestFolderToClean, { recursive: true, force: true, maxRetries: 3 });
+            fs.rmSync(guestFolderToClean, {
+              recursive: true,
+              force: true,
+              maxRetries: 3,
+            });
           } catch (e) {
-            console.warn(`[Main] Could not delete guest folder immediately:`, e);
+            console.warn(
+              `[Main] Could not delete guest folder immediately:`,
+              e,
+            );
             // Fallback async delete
-            fs.promises.rm(guestFolderToClean, { recursive: true, force: true }).catch(() => {});
+            fs.promises
+              .rm(guestFolderToClean, { recursive: true, force: true })
+              .catch(() => {});
           }
         }, 1000); // give UI time to close file handles
       }
@@ -279,116 +327,142 @@ app.whenReady().then(() => {
       else if (data && data.stdout) outputText = data.stdout;
       else if (data && data.stderr) outputText = data.stderr;
       else outputText = JSON.stringify(data);
-      
-      console.log(`[Main] Sending terminal-output IPC: ${JSON.stringify(outputText)}`);
+
+      console.log(
+        `[Main] Sending terminal-output IPC: ${JSON.stringify(outputText)}`,
+      );
       mainWindow.webContents.send("terminal-output", outputText);
     }
   });
 
-    tcpClient.setLintCallback((data) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("lint-result", data);
+  tcpClient.setLintCallback((data) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("lint-result", data);
+    }
+  });
+
+  tcpClient.setCollabCallback((dataBuf) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send("collab-event", dataBuf);
+    }
+    // Intercept ROOM_EVENT (sub-type 4) để cập nhật isInCollabRoom cho main process
+    // Host không bao giờ gọi project:set_guest, nên cần lấy thông tin từ Gateway
+    if (dataBuf && dataBuf.length >= 2 && dataBuf[0] === 4) {
+      const otherMemberCount = dataBuf[1] || 0;
+      isInCollabRoom = otherMemberCount > 0;
+      console.log(
+        `[Main] ROOM_EVENT: ${otherMemberCount} other member(s), isInCollabRoom=${isInCollabRoom}`,
+      );
+    }
+  });
+
+  // ── KICK NOTICE: Server đã đuổi user này khỏi phòng ──
+  // QUAN TRỌNG: Xử lý NGAY ở Main Process, không chờ renderer.
+  // Phải reset session trước khi reconnect xảy ra để tránh user2
+  // tự động re-join room sau khi TCP socket bị destroy.
+  tcpClient.setKickCallback((data) => {
+    console.warn(
+      "[Main] Received KICK_NOTICE from gateway — force leaving room...",
+      data,
+    );
+
+    try {
+      // 1. Reset TCP session roomId NGAY LẬP TỨC để khi reconnect không re-join room cũ
+      if (originalProjectId) {
+        tcpClient.setSession({ roomId: String(originalProjectId) });
+      } else {
+        tcpClient.setSession({ roomId: "default" });
       }
-    });
 
-    tcpClient.setCollabCallback((dataBuf) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("collab-event", dataBuf);
-      }
-      // Intercept ROOM_EVENT (sub-type 4) để cập nhật isInCollabRoom cho main process
-      // Host không bao giờ gọi project:set_guest, nên cần lấy thông tin từ Gateway
-      if (dataBuf && dataBuf.length >= 2 && dataBuf[0] === 4) {
-        const otherMemberCount = dataBuf[1] || 0;
-        isInCollabRoom = otherMemberCount > 0;
-        console.log(`[Main] ROOM_EVENT: ${otherMemberCount} other member(s), isInCollabRoom=${isInCollabRoom}`);
-      }
-    });
-
-    // ── KICK NOTICE: Server đã đuổi user này khỏi phòng ──
-    // QUAN TRỌNG: Xử lý NGAY ở Main Process, không chờ renderer.
-    // Phải reset session trước khi reconnect xảy ra để tránh user2
-    // tự động re-join room sau khi TCP socket bị destroy.
-    tcpClient.setKickCallback((data) => {
-      console.warn("[Main] Received KICK_NOTICE from gateway — force leaving room...", data);
-
-      try {
-        // 1. Reset TCP session roomId NGAY LẬP TỨC để khi reconnect không re-join room cũ
-        if (originalProjectId) {
-          tcpClient.setSession({ roomId: String(originalProjectId) });
-        } else {
-          tcpClient.setSession({ roomId: "default" });
-        }
-
-        // 2. Dọn dẹp state Main Process (giống room:leave handler)
-        const guestFolderToClean = (currentWorkspaceRoot && currentWorkspaceRoot.includes("cbcode_guest_"))
+      // 2. Dọn dẹp state Main Process (giống room:leave handler)
+      const guestFolderToClean =
+        currentWorkspaceRoot && currentWorkspaceRoot.includes("cbcode_guest_")
           ? currentWorkspaceRoot
           : null;
 
-        currentProjectId = originalProjectId;
-        currentWorkspaceRoot = originalWorkspaceRoot;
-        isInCollabRoom = false;
+      currentProjectId = originalProjectId;
+      currentWorkspaceRoot = originalWorkspaceRoot;
+      isInCollabRoom = false;
 
-        // 3. Restore sidebar về workspace gốc
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          if (currentWorkspaceRoot && fs.existsSync(currentWorkspaceRoot)) {
-            const treeData = buildTree(currentWorkspaceRoot);
-            mainWindow.webContents.send("folder-opened", {
-              items: treeData,
-              folderPath: currentWorkspaceRoot
-            });
-          } else {
-            mainWindow.webContents.send("folder-opened", { items: [], folderPath: null });
-          }
-
-          // 4. Thông báo renderer để dọn UI + toast + resetCollab()
-          mainWindow.webContents.send("kick-notice", data);
+      // 3. Restore sidebar về workspace gốc
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        if (currentWorkspaceRoot && fs.existsSync(currentWorkspaceRoot)) {
+          const treeData = buildTree(currentWorkspaceRoot);
+          mainWindow.webContents.send("folder-opened", {
+            items: treeData,
+            folderPath: currentWorkspaceRoot,
+          });
+        } else {
+          mainWindow.webContents.send("folder-opened", {
+            items: [],
+            folderPath: null,
+          });
         }
 
-        // 5. Xóa thư mục guest tạm
-        if (guestFolderToClean) {
-          setTimeout(() => {
-            try {
-              fs.rmSync(guestFolderToClean, { recursive: true, force: true, maxRetries: 3 });
-            } catch (e) {
-              fs.promises.rm(guestFolderToClean, { recursive: true, force: true }).catch(() => {});
-            }
-          }, 1000);
-        }
-      } catch (err) {
-        console.error("[Main] KICK_NOTICE handler error:", err);
-        // Dù lỗi, vẫn thông báo renderer
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send("kick-notice", data);
-        }
+        // 4. Thông báo renderer để dọn UI + toast + resetCollab()
+        mainWindow.webContents.send("kick-notice", data);
       }
-    });
+
+      // 5. Xóa thư mục guest tạm
+      if (guestFolderToClean) {
+        setTimeout(() => {
+          try {
+            fs.rmSync(guestFolderToClean, {
+              recursive: true,
+              force: true,
+              maxRetries: 3,
+            });
+          } catch (e) {
+            fs.promises
+              .rm(guestFolderToClean, { recursive: true, force: true })
+              .catch(() => {});
+          }
+        }, 1000);
+      }
+    } catch (err) {
+      console.error("[Main] KICK_NOTICE handler error:", err);
+      // Dù lỗi, vẫn thông báo renderer
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send("kick-notice", data);
+      }
+    }
+  });
 
   tcpClient.setFsEventCallback(async (data) => {
     try {
       const event = typeof data === "string" ? JSON.parse(data) : data;
-      if (currentProjectId && String(event.projectId) === String(currentProjectId)) {
+      if (
+        currentProjectId &&
+        String(event.projectId) === String(currentProjectId)
+      ) {
         const absolutePath = path.join(currentWorkspaceRoot, event.filepath);
         if (event.action === "update") {
           // Khi đang trong collab room, SKIP việc forward remote-file-update.
           // CRDT là nguồn sự thật, không cho SyncService ghi đè model.
           if (!isInCollabRoom) {
-            console.log(`[Main] Received FS_EVENT update for ${event.filepath}, asking renderer...`);
+            console.log(
+              `[Main] Received FS_EVENT update for ${event.filepath}, asking renderer...`,
+            );
             if (mainWindow && !mainWindow.isDestroyed()) {
-               mainWindow.webContents.send("remote-file-update", {
-                 filepath: absolutePath,
-                 relPath: event.filepath,
-                 projectId: currentProjectId,
-                 workspaceRoot: currentWorkspaceRoot,
-                 token: currentToken
-               });
+              mainWindow.webContents.send("remote-file-update", {
+                filepath: absolutePath,
+                relPath: event.filepath,
+                projectId: currentProjectId,
+                workspaceRoot: currentWorkspaceRoot,
+                token: currentToken,
+              });
             }
           } else {
-            console.log(`[Main] Skipping FS_EVENT update for ${event.filepath} (in collab room)`);
+            console.log(
+              `[Main] Skipping FS_EVENT update for ${event.filepath} (in collab room)`,
+            );
           }
         } else if (event.action === "delete") {
-          console.log(`[Main] Received FS_EVENT delete for ${event.filepath}, removing locally...`);
+          console.log(
+            `[Main] Received FS_EVENT delete for ${event.filepath}, removing locally...`,
+          );
           if (fs.existsSync(absolutePath)) {
-             fs.rmSync(absolutePath, { force: true });
+            fs.rmSync(absolutePath, { force: true });
           }
           syncManager.fileVersions.delete(absolutePath);
           syncManager.fileHashes.delete(absolutePath);
@@ -405,54 +479,74 @@ app.whenReady().then(() => {
   });
 
   // ---- Smart Realtime Sync IPC ----
-  ipcMain.handle("sync:trigger-conflict", async (event, { filepath, relPath, localContent, projectId, token }) => {
-    try {
-      const cloudData = await syncManager.pullFromCloud(relPath, token, projectId);
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send("sync:conflict", {
-          filepath,
+  ipcMain.handle(
+    "sync:trigger-conflict",
+    async (event, { filepath, relPath, localContent, projectId, token }) => {
+      try {
+        const cloudData = await syncManager.pullFromCloud(
           relPath,
-          localContent,
-          cloudContent: cloudData.content,
-          cloudVersion: cloudData.version,
-          projectId
-        });
-      }
-    } catch(err) {
-      console.error("[Main] sync:trigger-conflict error:", err);
-    }
-  });
-
-  ipcMain.handle("sync:safe-pull-and-reload", async (event, { filepath, projectId, token, workspaceRoot }) => {
-    try {
-      // Đọc nội dung hiện tại trên disk TRƯỚC khi pull từ cloud
-      const fs = require("fs");
-      const existingContent = fs.existsSync(filepath)
-        ? fs.readFileSync(filepath, "utf8")
-        : null;
-
-      await syncManager.pullAndSaveLocal(filepath, token, projectId, workspaceRoot);
-
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        if (fs.existsSync(filepath)) {
-          const content = fs.readFileSync(filepath, "utf8");
-
-          // Nếu nội dung cloud giống hệt local → bỏ qua reload.
-          // Trường hợp này xảy ra khi A vừa Ctrl+S và nhận lại chính
-          // FS_EVENT của mình → cloud content = local content vừa save.
-          // Gọi model.setValue() sẽ reset cursor về đầu file không cần thiết.
-          if (content === existingContent) {
-            console.log(`[Main] safe-pull-and-reload: content unchanged for ${filepath}, skip reload.`);
-            return;
-          }
-
-          mainWindow.webContents.send("reload-tab-content", { filepath, content });
+          token,
+          projectId,
+        );
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send("sync:conflict", {
+            filepath,
+            relPath,
+            localContent,
+            cloudContent: cloudData.content,
+            cloudVersion: cloudData.version,
+            projectId,
+          });
         }
+      } catch (err) {
+        console.error("[Main] sync:trigger-conflict error:", err);
       }
-    } catch(err) {
-      console.error("[Main] sync:safe-pull-and-reload error:", err);
-    }
-  });
+    },
+  );
+
+  ipcMain.handle(
+    "sync:safe-pull-and-reload",
+    async (event, { filepath, projectId, token, workspaceRoot }) => {
+      try {
+        // Đọc nội dung hiện tại trên disk TRƯỚC khi pull từ cloud
+        const fs = require("fs");
+        const existingContent = fs.existsSync(filepath)
+          ? fs.readFileSync(filepath, "utf8")
+          : null;
+
+        await syncManager.pullAndSaveLocal(
+          filepath,
+          token,
+          projectId,
+          workspaceRoot,
+        );
+
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          if (fs.existsSync(filepath)) {
+            const content = fs.readFileSync(filepath, "utf8");
+
+            // Nếu nội dung cloud giống hệt local → bỏ qua reload.
+            // Trường hợp này xảy ra khi A vừa Ctrl+S và nhận lại chính
+            // FS_EVENT của mình → cloud content = local content vừa save.
+            // Gọi model.setValue() sẽ reset cursor về đầu file không cần thiết.
+            if (content === existingContent) {
+              console.log(
+                `[Main] safe-pull-and-reload: content unchanged for ${filepath}, skip reload.`,
+              );
+              return;
+            }
+
+            mainWindow.webContents.send("reload-tab-content", {
+              filepath,
+              content,
+            });
+          }
+        }
+      } catch (err) {
+        console.error("[Main] sync:safe-pull-and-reload error:", err);
+      }
+    },
+  );
 
   ipcMain.on("request-delete-file", async (_event, filePath) => {
     try {
@@ -460,7 +554,12 @@ app.whenReady().then(() => {
         fs.rmSync(filePath, { force: true });
       }
       if (currentProjectId) {
-        await syncManager.deleteCloudFile(filePath, currentToken, currentProjectId, currentWorkspaceRoot);
+        await syncManager.deleteCloudFile(
+          filePath,
+          currentToken,
+          currentProjectId,
+          currentWorkspaceRoot,
+        );
       }
     } catch (e) {
       console.error("[Main] Delete file error:", e);
@@ -469,38 +568,63 @@ app.whenReady().then(() => {
 
   ipcMain.on("lint-code", (_event, data) => {
     const lintId = "lint_" + Date.now();
-    tcpClient.send(tcpClient.TYPE.LINT, lintId, {
-      action: "lint",
-      language: data.lang,
-      code: data.code,
-      projectId: currentProjectId
-    }, { encrypt: true });
+    tcpClient.send(
+      tcpClient.TYPE.LINT,
+      lintId,
+      {
+        action: "lint",
+        language: data.lang,
+        code: data.code,
+        projectId: currentProjectId,
+      },
+      { encrypt: true },
+    );
   });
 
   ipcMain.on("run-code", (_event, data) => {
-    console.log(`[Main] Requesting remote code execution (lang: ${data.lang})...`);
+    console.log(
+      `[Main] Requesting remote code execution (lang: ${data.lang})...`,
+    );
     currentRunId = "run_" + Date.now();
-    const success = tcpClient.send(tcpClient.TYPE.RUN, currentRunId, {
-       action: "execute",
-       language: data.lang,
-       code: data.code,
-       projectId: currentProjectId,
-       entryPoint: data.entryPoint || "main.cpp"
-    }, { encrypt: true });
-    
+    const success = tcpClient.send(
+      tcpClient.TYPE.RUN,
+      currentRunId,
+      {
+        action: "execute",
+        language: data.lang,
+        code: data.code,
+        projectId: currentProjectId,
+        entryPoint: data.entryPoint || "main.cpp",
+      },
+      { encrypt: true },
+    );
+
     if (!success) {
-       console.log("[Main] Server offline, code execution aborted.");
-       if (mainWindow && !mainWindow.isDestroyed()) {
-         mainWindow.webContents.send("terminal-output", "\r\n\x1b[1;31m[Error] ❌ Server is currently offline. Cannot execute code.\x1b[0m\r\n[Process Exited: 1]");
-         mainWindow.webContents.send("show-toast", { message: "Server is offline. Cannot run code.", type: "error" });
-       }
+      console.log("[Main] Server offline, code execution aborted.");
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(
+          "terminal-output",
+          "\r\n\x1b[1;31m[Error] ❌ Server is currently offline. Cannot execute code.\x1b[0m\r\n[Process Exited: 1]",
+        );
+        mainWindow.webContents.send("show-toast", {
+          message: "Server is offline. Cannot run code.",
+          type: "error",
+        });
+      }
     }
   });
 
   ipcMain.on("run-input", (_event, inputData) => {
-    console.log(`[Main] Sending run-input for ${currentRunId}: ${JSON.stringify(inputData)}`);
+    console.log(
+      `[Main] Sending run-input for ${currentRunId}: ${JSON.stringify(inputData)}`,
+    );
     if (currentRunId) {
-      tcpClient.send(tcpClient.TYPE.INPUT, currentRunId, Buffer.from(inputData, 'utf8'), { encrypt: true });
+      tcpClient.send(
+        tcpClient.TYPE.INPUT,
+        currentRunId,
+        Buffer.from(inputData, "utf8"),
+        { encrypt: true },
+      );
     }
   });
 
@@ -521,9 +645,18 @@ app.on("window-all-closed", () => {
 
 app.on("before-quit", () => {
   try {
-    if (currentWorkspaceRoot && currentWorkspaceRoot.includes("cbcode_guest_")) {
-      console.log(`[Main] App quitting, clearing guest folder: ${currentWorkspaceRoot}`);
-      fs.rmSync(currentWorkspaceRoot, { recursive: true, force: true, maxRetries: 3 });
+    if (
+      currentWorkspaceRoot &&
+      currentWorkspaceRoot.includes("cbcode_guest_")
+    ) {
+      console.log(
+        `[Main] App quitting, clearing guest folder: ${currentWorkspaceRoot}`,
+      );
+      fs.rmSync(currentWorkspaceRoot, {
+        recursive: true,
+        force: true,
+        maxRetries: 3,
+      });
     }
   } catch (e) {
     console.error("[Main] Error cleaning up guest folder on quit:", e);
