@@ -23,7 +23,7 @@ class WarmPoolBootstrapper {
     this.memoryLimitBytes = Number(
       opts.memoryLimitBytes ??
         process.env.CONTAINER_MEMORY_BYTES ??
-        100 * 1024 * 1024,
+        512 * 1024 * 1024,
     );
     this.nanoCpus = Number(
       opts.nanoCpus ?? process.env.CONTAINER_NANO_CPUS ?? 500000000,
